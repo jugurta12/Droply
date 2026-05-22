@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: droply_db
+    platform: linux/amd64 
+    environment:
+      POSTGRES_USER: jugurta
+      POSTGRES_PASSWORD: droply_password123
+      POSTGRES_DB: droply_database
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres_data:
