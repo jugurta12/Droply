@@ -282,6 +282,14 @@ export default function Home() {
                           </button>
                         )}
                       </div>
+                      <div>
+                        <p className="font-semibold text-slate-800 truncate">{m.title}</p>
+                        <p className="text-slate-500 font-bold">{m.price} €</p>
+                        {/* Affichage du code secret pour l'admin */}
+                        {m.validationCode && (
+                        <p className="text-indigo-600 font-mono font-bold text-[11px] mt-0.5">🔑 Code sécurisé : {m.validationCode}</p>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

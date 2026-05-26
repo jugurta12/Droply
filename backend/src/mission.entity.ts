@@ -45,4 +45,7 @@ export class MissionEntity {
 
   @CreateDateColumn()
   createdAt!: Date;
+
+  @Column({ nullable: true })
+  validationCode!: string;
 }

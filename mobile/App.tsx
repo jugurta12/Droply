@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, ActivityIndicator, Platform, TouchableOpacity, ScrollView, Image, TextInput, Modal } from 'react-native';
+import { StyleSheet, Text, View, Platform, TouchableOpacity, ScrollView, Image, TextInput, Modal, Linking } from 'react-native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { io, Socket } from 'socket.io-client';
@@ -28,6 +28,9 @@ export default function App() {
   const [modalVisible, setModalVisible] = useState<boolean>(false);
   const [incomingMission, setIncomingMission] = useState<any | null>(null);
 
+  // ⚡ ÉTAT SAISIE DU CODE CLIENT
+  const [inputCode, setInputCode] = useState('');
+
   // Sélection de la photo de profil
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
@@ -39,6 +42,38 @@ export default function App() {
     if (!result.canceled) {
       setProfileImage(result.assets[0].uri);
     }
+  };
+
+  // ⚡ ITINÉRAIRE 1 : Aller au point de récupération (Magasin / Expéditeur)
+  const openGPSPickup = () => {
+    if (!activeMission) return;
+    const lat = activeMission.pickupLatitude;
+    const lng = activeMission.pickupLongitude;
+    const label = encodeURIComponent("Récupération : " + activeMission.title);
+
+    const url = Platform.select({
+      ios: `maps:0,0?q=${label}@${lat},${lng}`,
+      android: `geo:0,0?q=${lat},${lng}(${label})`,
+      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+    });
+
+    Linking.openURL(url).catch((err) => console.error("Erreur GPS Récupération :", err));
+  };
+
+  // ⚡ ITINÉRAIRE 2 : Aller au point de livraison finale (Client)
+  const openGPSDelivery = () => {
+    if (!activeMission) return;
+    const lat = activeMission.deliveryLatitude;
+    const lng = activeMission.deliveryLongitude;
+    const label = encodeURIComponent("Livraison : " + activeMission.title);
+
+    const url = Platform.select({
+      ios: `maps:0,0?q=${label}@${lat},${lng}`,
+      android: `geo:0,0?q=${lat},${lng}(${label})`,
+      default: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+    });
+
+    Linking.openURL(url).catch((err) => console.error("Erreur GPS Livraison :", err));
   };
 
   // Initialiser les WebSockets et le GPS après Auth réussie
@@ -60,16 +95,11 @@ export default function App() {
       }
     });
 
-    // Écouter les mises à jour de statut globales (Livraison, Annulation...)
     newSocket.on('admin_mission_updated', (updatedMission: any) => {
-      // 🚀 CORRECTIF SÉCURITÉ : Conversion forcée en Number pour éviter le bug String/Number
       const updatedId = Number(updatedMission.id);
 
       if (updatedMission.status === 'DELETED') {
-        // 🗑️ 1. Retirer du marché en direct
         setAvailableMissions(prev => prev.filter(m => Number(m.id) !== updatedId));
-        
-        // 🗑️ 2. Fermer la modal si elle était ouverte sur CETTE mission
         setIncomingMission((currentIncoming: any) => {
           if (currentIncoming && Number(currentIncoming.id) === updatedId) {
             setModalVisible(false);
@@ -83,7 +113,6 @@ export default function App() {
       }
     });
 
-    // 🚀 CORRECTIF ID DYNAMIQUE : On charge le marché avec le VRAI userId dynamique du mec connecté
     fetch(`${BACKEND_URL}/missions/user/${userId}`)
       .then(res => res.json())
       .then(data => {
@@ -157,7 +186,6 @@ export default function App() {
         body: JSON.stringify({ status: 'ACCEPTED' }),
       });
       
-      // Si la mission a été supprimée entre-temps par l'admin, le serveur renverra une erreur
       if (!res.ok) {
         alert("Désolé, cette course n'est plus disponible !");
         setAvailableMissions(prev => prev.filter(m => Number(m.id) !== Number(missionId)));
@@ -176,16 +204,29 @@ export default function App() {
     }
   };
 
+  // VALIDATION PAR CODE SECRET OBLIGATOIRE
   const completeMission = async () => {
     if (!activeMission) return;
+    if (!inputCode) return alert("Veuillez demander le code de sécurité à 3 chiffres au client !");
+
     try {
       const res = await fetch(`${BACKEND_URL}/missions/${activeMission.id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'DELIVERED' }),
+        body: JSON.stringify({ status: 'DELIVERED', code: inputCode }),
       });
-      setActiveMission(await res.json());
-    } catch (err) { console.error(err); }
+
+      const data = await res.json();
+
+      if (data.error || res.status >= 400) {
+        return alert(data.message || "Code de validation incorrect ! Demandez le bon code au client.");
+      }
+
+      setActiveMission(data);
+      setInputCode('');
+    } catch (err) { 
+      console.error(err); 
+    }
   };
 
   // --- RENDU ÉCRAN : CONNEXION ---
@@ -272,20 +313,49 @@ export default function App() {
         <View style={[styles.miniStatusBadge, { backgroundColor: connected ? '#4CD964' : '#FF3B30' }]} />
       </View>
 
+      {/* 🏃 EXÉCUTION DE MISSION AVEC LES 2 ITINÉRAIRES DISTINCTS */}
       {activeMission && activeMission.status === 'ACCEPTED' ? (
-        <View style={styles.missionActiveCard}>
-          <Text style={styles.missionActiveTitle}>🏃 MISSION EN COURS D'EXÉCUTION</Text>
-          <Text style={styles.missionTitleText}>{activeMission.title}</Text>
-          <Text style={styles.missionPriceText}>{activeMission.price} €</Text>
-          <Text style={styles.missionDesc}>{activeMission.description}</Text>
-          <TouchableOpacity style={styles.completeButton} onPress={completeMission}>
-            <Text style={styles.buttonText}>✓ J'ai terminé la livraison !</Text>
-          </TouchableOpacity>
+        <View style={{ flex: 1, width: '100%' }}>
+          <View style={styles.missionActiveCard}>
+            <Text style={styles.missionActiveTitle}>🏃 MISSION EN COURS D'EXÉCUTION</Text>
+            <Text style={styles.missionTitleText}>{activeMission.title}</Text>
+            <Text style={styles.missionPriceText}>{activeMission.price} €</Text>
+            <Text style={styles.missionDesc}>{activeMission.description}</Text>
+
+            {/* 📍 LES DEUX BOUTONS DE NAVIGATION GPS */}
+            <View style={{ marginVertical: 10 }}>
+              <TouchableOpacity style={[styles.navigationGpsButton, { backgroundColor: '#FF9500' }]} onPress={openGPSPickup}>
+                <Text style={styles.buttonText}>📦 Étape 1 : Aller récupérer le colis</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.navigationGpsButton, { backgroundColor: '#007AFF', marginTop: 10 }]} onPress={openGPSDelivery}>
+                <Text style={styles.buttonText}>🏁 Étape 2 : Aller livrer le client</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {/* 🔐 ENTRÉE DU CODE DE SÉCURITÉ CLIENT REQUIRED */}
+            <View style={{ marginTop: 15, borderTopWidth: 1, borderColor: '#3A3A3C', paddingTop: 15 }}>
+              <Text style={{ color: '#FF9500', fontWeight: 'bold', fontSize: 11, marginBottom: 5 }}>🔒 CODE DE VALIDATION EXIGÉ (3 CHIFFRES)</Text>
+              <TextInput 
+                style={styles.codeInputField} 
+                placeholder="---" 
+                placeholderTextColor="#8E8E93" 
+                keyboardType="number-pad" 
+                maxLength={3} 
+                value={inputCode} 
+                onChangeText={setInputCode} 
+              />
+            </View>
+
+            <TouchableOpacity style={styles.completeButton} onPress={completeMission}>
+              <Text style={styles.buttonText}>✓ Confirmer le code & Terminer la course</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : activeMission && activeMission.status === 'DELIVERED' ? (
         <View style={styles.successCard}>
           <Text style={styles.successTitle}>🎉 Bravo {currentUser?.firstName} !</Text>
-          <Text style={styles.successText}>Course terminée. Commission de {activeMission.price} € validée.</Text>
+          <Text style={styles.successText}>Course validée avec succès. Commission de {activeMission.price} € ajoutée à ton compte.</Text>
           <TouchableOpacity style={styles.clearButton} onPress={() => setActiveMission(null)}>
             <Text style={styles.clearButtonText}>Retourner au marché</Text>
           </TouchableOpacity>
@@ -345,7 +415,6 @@ export default function App() {
   );
 }
 
-// Les styles restent identiques, pas de modifs ici
 const styles = StyleSheet.create({
   authContainer: { flex: 1, backgroundColor: '#FFF', justifyContent: 'center', padding: 24 },
   authTitle: { fontSize: 26, fontWeight: '800', color: '#1C1C1E', textAlign: 'center' },
@@ -378,14 +447,14 @@ const styles = StyleSheet.create({
   missionActiveTitle: { color: '#FF9500', fontWeight: 'bold', fontSize: 11 },
   missionTitleText: { color: '#FFF', fontSize: 20, fontWeight: 'bold', marginTop: 5 },
   missionPriceText: { color: '#4CD964', fontSize: 22, fontWeight: '800' },
-  missionDesc: { color: '#AEAEB2', fontSize: 13, marginVertical: 15 },
-  completeButton: { backgroundColor: '#4CD964', padding: 14, borderRadius: 10, alignItems: 'center' },
+  missionDesc: { color: '#AEAEB2', fontSize: 13, marginVertical: 8 },
+  completeButton: { backgroundColor: '#4CD964', padding: 14, borderRadius: 10, alignItems: 'center', marginTop: 10 },
   successCard: { backgroundColor: '#FFF', padding: 20, borderRadius: 16, alignItems: 'center', borderWidth: 2, borderColor: '#4CD964' },
   successTitle: { fontSize: 16, fontWeight: 'bold', color: '#4CD964' },
   successText: { fontSize: 13, color: '#3A3A3C', textAlign: 'center', marginTop: 5 },
   clearButton: { marginTop: 15, backgroundColor: '#F2F2F7', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 8 },
   clearButtonText: { color: '#1C1C1E', fontWeight: '600' },
-   modalContainer: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  modalContainer: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, alignItems: 'center' },
   modalBadge: { color: '#007AFF', fontWeight: 'bold', fontSize: 10, backgroundColor: '#E5F1FF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1C1C1E', marginTop: 8 },
@@ -393,4 +462,8 @@ const styles = StyleSheet.create({
   modalButtonsRow: { flexDirection: 'row', width: '100%', justifyContent: 'space-between', marginTop: 15 },
   declineButton: { width: '46%', padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#FFE5E5' },
   acceptButton: { width: '46%', padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#1C1C1E' },
+  
+  // Styles du bouton GPS et de la saisie sécurisée
+  navigationGpsButton: { padding: 14, borderRadius: 10, alignItems: 'center' },
+  codeInputField: { backgroundColor: '#2C2C2E', padding: 12, borderRadius: 8, color: '#FFF', fontSize: 20, fontWeight: 'bold', textAlign: 'center', letterSpacing: 8, marginVertical: 8 }
 });

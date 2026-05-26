@@ -32,6 +32,7 @@ export class AppController {
   }
 
   // 1. Créer et assigner une mission à un livreur
+// 1. Créer et assigner une mission à un livreur avec génération du code secret
   @Post('missions')
   async createMission(@Body() body: {
     title: string;
@@ -43,9 +44,13 @@ export class AppController {
     price: number;
     userId: string;
   }) {
+    // On génère le code de sécurité à 3 chiffres sans toucher au reste de la logique
+    const randomCode = Math.floor(100 + Math.random() * 900).toString();
+
     const mission = this.missionRepository.create({
       ...body,
       status: MissionStatus.PENDING,
+      validationCode: randomCode, // ◄── Ajouté proprement ici
     });
     
     const savedMission = await this.missionRepository.save(mission);
@@ -54,6 +59,33 @@ export class AppController {
     this.gpsGateway.server.emit('new_mission_alert', savedMission);
 
     return savedMission;
+  }
+   
+  @Put('missions/:id/status')
+  async updateMissionStatus(
+    @Param('id') id: number,
+    @Body('status') status: MissionStatus,
+    @Body('code') code?: string, // ◄── Reçoit le code envoyé par le mobile
+  ) {
+    const mission = await this.missionRepository.findOne({ where: { id: Number(id) } });
+    if (!mission) {
+      throw new BadRequestException("Cette mission n'existe pas.");
+    }
+
+    // Sécurité : Si le livreur veut passer la course à DELIVERED, on valide le code
+    if (status === MissionStatus.DELIVERED) {
+      if (!code || mission.validationCode !== code) {
+        throw new BadRequestException("Le code de sécurité est incorrect !");
+      }
+    }
+
+    await this.missionRepository.update(id, { status });
+    const updatedMission = await this.missionRepository.findOne({ where: { id: Number(id) } });
+
+    // ⚡ TEMPS RÉEL : On prévient le Dashboard Web que le statut a changé
+    this.gpsGateway.server.emit('admin_mission_updated', updatedMission);
+
+    return updatedMission;
   }
 
   // 2. Récupérer les missions d'un livreur spécifique
@@ -103,19 +135,6 @@ export class AppController {
   }
 
   // 3. Mettre à jour le statut d'une mission (Accepter / Terminer)
-  @Put('missions/:id/status')
-  async updateMissionStatus(
-    @Param('id') id: number,
-    @Body('status') status: MissionStatus,
-  ) {
-    await this.missionRepository.update(id, { status });
-    const updatedMission = await this.missionRepository.findOne({ where: { id } });
-
-    // ⚡ TEMPS RÉEL : On prévient le Dashboard Web que le statut a changé
-    this.gpsGateway.server.emit('admin_mission_updated', updatedMission);
-
-    return updatedMission;
-  }
   @Post('auth/register')
   async register(@Body() body: { firstName: string; email: string; password:  string; profileImage: string }) {
     // Vérifier si l'email existe déjà
