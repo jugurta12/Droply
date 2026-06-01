@@ -6,14 +6,14 @@ import dynamic from 'next/dynamic';
 const MapWithNoSSR = dynamic(() => import('./components/Map'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-[600px] flex items-center justify-center bg-slate-100 rounded-xl border animate-pulse">
-      <p className="text-slate-500 font-medium">Chargement de la carte de contrôle Droply...</p>
+    <div className="w-full h-[650px] flex flex-col items-center justify-center bg-slate-50 rounded-2xl border border-slate-200/60 shadow-sm animate-pulse">
+      <div className="w-8 h-8 border-2 border-slate-900 border-t-transparent rounded-full animate-spin mb-3" />
+      <p className="text-slate-500 font-medium text-sm tracking-tight">Initialisation de la matrice de contrôle...</p>
     </div>
   ),
 });
 
 export default function Home() {
-  // ⚡ MODIFICATION : On commence sans ID fixé, on attrapera celui qui se connecte !
   const [activeUser, setActiveUser] = useState<string | null>(null);
   const [lastSeen, setLastSeen] = useState<string>("En attente d'un signal livreur...");
   const [isOnline, setIsOnline] = useState<boolean>(false);
@@ -23,6 +23,9 @@ export default function Home() {
   const [price, setPrice] = useState('15.00');
   const [loadingGeocode, setLoadingGeocode] = useState(false);
 
+  // ⚡ ÉTAT POUR L'ONGLET ACTIF
+  const [activeTab, setActiveTab] = useState<'ACTIVE' | 'HISTORY'>('ACTIVE');
+
   const [pickupInput, setPickupInput] = useState('');
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [pickupSuggestions, setPickupSuggestions] = useState<any[]>([]);
@@ -31,7 +34,6 @@ export default function Home() {
   const [deliveryCoords, setDeliveryCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [deliverySuggestions, setDeliverySuggestions] = useState<any[]>([]);
 
-  // Charge l'historique de l'utilisateur actif
   const loadLastKnownLocation = (id: string) => {
     fetch(`http://localhost:3000/locations/last/${id}`)
       .then((res) => res.json())
@@ -46,7 +48,6 @@ export default function Home() {
       .catch(() => setLastSeen("Hors-ligne (Erreur serveur)"));
   };
 
-  // Charge les missions de l'utilisateur actif
   const loadUserMissions = (id: string) => {
     fetch(`http://localhost:3000/missions/user/${id}`)
       .then((res) => res.json())
@@ -56,7 +57,6 @@ export default function Home() {
       .catch((err) => console.error("Erreur missions:", err));
   };
 
-  // ⚡ Déclencher les chargements de BDD dès qu'un utilisateur est détecté
   useEffect(() => {
     if (activeUser) {
       loadUserMissions(activeUser);
@@ -67,9 +67,7 @@ export default function Home() {
     const { io } = require('socket.io-client');
     const socket = io('http://localhost:3000');
 
-    // Écoute les mouvements GPS de TOUT LE MONDE
     socket.on('admin_location_moved', (data: { userId: string; timestamp: string }) => {
-      // Magie : On s'aligne automatiquement sur le livreur qui parle !
       setActiveUser(data.userId);
       setIsOnline(true);
       const date = new Date(data.timestamp);
@@ -143,7 +141,7 @@ export default function Home() {
         deliveryLatitude: deliveryCoords.lat,
         deliveryLongitude: deliveryCoords.lng,
         price: parseFloat(price),
-        userId: activeUser, // Assigné dynamiquement au livreur actif !
+        userId: activeUser,
       }),
     });
 
@@ -156,6 +154,7 @@ export default function Home() {
       setPickupCoords(null);
       setDeliveryCoords(null);
       loadUserMissions(activeUser);
+      setActiveTab('ACTIVE');
     }
   };
 
@@ -167,57 +166,70 @@ export default function Home() {
     }
   };
 
+  const activeMissions = missions.filter(m => m.status !== 'DELIVERED');
+  const historyMissions = missions.filter(m => m.status === 'DELIVERED');
+  const totalEarnings = historyMissions.reduce((sum, m) => sum + parseFloat(m.price), 0).toFixed(2);
+
   return (
-    <main className="min-h-screen bg-slate-50 p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-200 pb-5">
+    <main className="min-h-screen bg-[#F8FAFC] p-6 lg:p-10 font-sans antialiased text-slate-900">
+      <div className="max-w-7xl mx-auto space-y-8">
+        
+        {/* HEADER SUBTILE ET CLASSE */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 pb-6">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Droply Control Center</h1>
-            <p className="text-sm text-slate-500 mt-1">Suivi de la flotte d'intervenants en temps réel</p>
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Droply Control Center</h1>
+            <p className="text-xs text-slate-500 mt-1 font-medium">Console de supervision de flotte en temps réel</p>
           </div>
-          <div className={`flex items-center space-x-2 px-4 py-2 rounded-full border text-sm font-semibold transition-all duration-300 ${
-            isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'
+          <div className={`self-start sm:self-center flex items-center space-x-2 px-3 py-1.5 rounded-full border text-[11px] font-medium tracking-wide uppercase shadow-sm transition-all duration-300 ${
+            isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
           }`}>
-            <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-ping' : 'bg-amber-500'}`} />
-            <span>{isOnline ? 'Flux de données Live' : 'Mode Historique'}</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+            <span>{isOnline ? 'Live stream actif' : 'Mode synchrone historique'}</span>
           </div>
         </div>
 
-        {/* Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          <div className="space-y-4 lg:col-span-1">
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Intervenant ciblé</h3>
-              <p className="text-lg font-bold text-slate-800 mt-1 truncate">
-                {activeUser ? activeUser : "En attente d'un livreur..."}
+        {/* ECOSYSTEM LAYOUT */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
+          
+          {/* PANEL DE GAUCHE : OUTILS ET LISTES */}
+          <div className="space-y-6 lg:col-span-1">
+            
+            {/* COMPOSANT INTERVENANT CIBLÉ */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-sm relative overflow-hidden group">
+              <div className="absolute top-0 left-0 w-1 h-full bg-slate-950" />
+              <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Opérateur actif</h3>
+              <p className="text-base font-semibold text-slate-900 mt-1 truncate tracking-tight">
+                {activeUser ? activeUser.replace('intervenant_', '@') : "En attente de connexion..."}
               </p>
-              <div className={`mt-2 text-xs font-medium ${isOnline ? 'text-emerald-600' : 'text-slate-500'}`}>
+              <div className={`mt-1.5 text-xs font-medium tracking-tight ${isOnline ? 'text-emerald-600' : 'text-slate-400'}`}>
                 {lastSeen}
               </div>
             </div>
 
-            {/* Formulaire avec Autocomplete */}
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
-              <h3 className="text-sm font-bold text-slate-800 border-b pb-2">🚀 Assigner une Mission</h3>
-              <form onSubmit={handleSubmitMission} className="space-y-3 text-xs">
+            {/* FORMULAIRE DE CRÉATION DE MISSION */}
+            <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-sm space-y-4">
+              <div className="border-b border-slate-100 pb-3">
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Assigner un ordre</h3>
+              </div>
+              <form onSubmit={handleSubmitMission} className="space-y-4 text-xs">
+                
                 <div>
-                  <label className="block text-slate-500 font-medium mb-1">Nom de la course</label>
-                  <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Livraison Pizza Hot" className="w-full p-2 border rounded-lg text-slate-800 font-medium" />
+                  <label className="block text-slate-500 font-medium mb-1.5">Intitulé de la course</label>
+                  <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Hub expédition colis #902" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 font-medium focus:outline-none focus:border-slate-400 transition" />
                 </div>
                 
                 {/* Départ */}
                 <div className="relative">
-                  <label className="block text-slate-500 font-medium mb-1">📍 Adresse de départ</label>
-                  <input type="text" value={pickupInput} onChange={(e) => setPickupInput(e.target.value)} placeholder="Tape l'adresse de départ..." className={`w-full p-2 border rounded-lg text-slate-800 font-medium ${pickupCoords ? 'border-emerald-500 bg-emerald-50/30' : ''}`} />
+                  <label className="block text-slate-500 font-medium mb-1.5">Adresse de chargement</label>
+                  <input type="text" value={pickupInput} onChange={(e) => setPickupInput(e.target.value)} placeholder="Rechercher le départ..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${pickupCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
                   {pickupSuggestions.length > 0 && (
-                    <ul className="absolute z-50 left-0 right-0 bg-white border rounded-lg mt-1 max-h-40 overflow-y-auto shadow-xl divide-y">
+                    <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
                       {pickupSuggestions.map((s, idx) => (
                         <li key={idx} onClick={() => {
                           setPickupInput(s.display_name);
                           setPickupCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
                           setPickupSuggestions([]);
-                        }} className="p-2 hover:bg-slate-100 cursor-pointer text-slate-700 truncate">{s.display_name}</li>
+                        }} className="p-2.5 text-[11px] hover:bg-slate-50 cursor-pointer text-slate-600 truncate transition-colors">{s.display_name}</li>
                       ))}
                     </ul>
                   )}
@@ -225,81 +237,128 @@ export default function Home() {
 
                 {/* Arrivée */}
                 <div className="relative">
-                  <label className="block text-slate-500 font-medium mb-1">🏁 Adresse d'arrivée</label>
-                  <input type="text" value={deliveryInput} onChange={(e) => setDeliveryInput(e.target.value)} placeholder="Tape l'adresse d'arrivée..." className={`w-full p-2 border rounded-lg text-slate-800 font-medium ${deliveryCoords ? 'border-emerald-500 bg-emerald-50/30' : ''}`} />
+                  <label className="block text-slate-500 font-medium mb-1.5">Destination de livraison</label>
+                  <input type="text" value={deliveryInput} onChange={(e) => setDeliveryInput(e.target.value)} placeholder="Rechercher l'arrivée..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${deliveryCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
                   {deliverySuggestions.length > 0 && (
-                    <ul className="absolute z-50 left-0 right-0 bg-white border rounded-lg mt-1 max-h-40 overflow-y-auto shadow-xl divide-y">
+                    <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
                       {deliverySuggestions.map((s, idx) => (
                         <li key={idx} onClick={() => {
                           setDeliveryInput(s.display_name);
                           setDeliveryCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
                           setDeliverySuggestions([]);
-                        }} className="p-2 hover:bg-slate-100 cursor-pointer text-slate-700 truncate">{s.display_name}</li>
+                        }} className="p-2.5 text-[11px] hover:bg-slate-50 cursor-pointer text-slate-600 truncate transition-colors">{s.display_name}</li>
                       ))}
                     </ul>
                   )}
                 </div>
 
                 <div>
-                  <label className="block text-slate-500 font-medium mb-1">Tarif (€)</label>
-                  <input type="text" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full p-2 border rounded-lg text-slate-800 font-bold" />
+                  <label className="block text-slate-500 font-medium mb-1.5">Honoraires de course (€)</label>
+                  <input type="text" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-900 font-mono font-bold focus:outline-none" />
                 </div>
 
-                <button type="submit" disabled={loadingGeocode || !pickupCoords || !deliveryCoords || !activeUser} className="w-full bg-slate-900 text-white font-semibold p-2.5 rounded-lg hover:bg-slate-800 transition disabled:bg-slate-300">
-                  {activeUser ? 'Envoyer la mission' : ' attente livreur...'}
+                <button type="submit" disabled={loadingGeocode || !pickupCoords || !deliveryCoords || !activeUser} className="w-full bg-slate-950 text-white font-medium py-2.5 rounded-xl hover:bg-slate-800 transition shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 border border-transparent tracking-wide mt-2">
+                  {activeUser ? 'Émettre la mission' : 'En attente de flotte'}
                 </button>
               </form>
             </div>
 
-            {/* Liste des missions */}
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm max-h-[250px] overflow-y-auto">
-              <h3 className="text-sm font-bold text-slate-800 mb-2">📋 Suivi des Missions</h3>
-              {missions.length === 0 ? (
-                <p className="text-xs text-slate-400">Aucune mission pour ce livreur.</p>
-              ) : (
-                <div className="space-y-2">
-                  {missions.map((m) => (
-                    <div key={m.id} className="p-2 bg-slate-50 rounded-lg border text-xs flex justify-between items-center">
-                      <div className="flex-1 min-w-0 pr-2">
-                        <p className="font-semibold text-slate-800 truncate">{m.title}</p>
-                        <p className="text-slate-500 font-bold">{m.price} €</p>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-1 rounded-full font-bold text-[10px] tracking-wide uppercase ${
-                          m.status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
-                          m.status === 'ACCEPTED' ? 'bg-blue-100 text-blue-800 border border-blue-200' : 
-                          m.status === 'REFUSED' ? 'bg-rose-100 text-rose-800 border border-rose-200' : 
-                          'bg-amber-100 text-amber-800 border border-amber-200'
-                        }`}>
-                          {m.status === 'PENDING' && '⏳ En attente'}
-                          {m.status === 'ACCEPTED' && '🏃 Accepté'}
-                          {m.status === 'DELIVERED' && '✅ Livré'}
-                          {m.status === 'REFUSED' && '❌ Refusé'}
-                        </span>
-                        {m.status === 'PENDING' && (
-                          <button onClick={() => handleDeleteMission(m.id)} className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg border border-rose-200 transition cursor-pointer" title="Supprimer la course" type="button">
-                            🗑️
-                          </button>
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-semibold text-slate-800 truncate">{m.title}</p>
-                        <p className="text-slate-500 font-bold">{m.price} €</p>
-                        {/* Affichage du code secret pour l'admin */}
+            {/* ONGLET CONSOLE DE LOGS / COURSES */}
+            <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
+              
+              {/* Onglets */}
+              <div className="flex border-b border-slate-100 text-[11px] font-bold bg-slate-50/80 p-1">
+                <button 
+                  onClick={() => setActiveTab('ACTIVE')}
+                  className={`flex-1 py-2 text-center rounded-xl transition-all duration-200 ${activeTab === 'ACTIVE' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Opérations ({activeMissions.length})
+                </button>
+                <button 
+                  onClick={() => setActiveTab('HISTORY')}
+                  className={`flex-1 py-2 text-center rounded-xl transition-all duration-200 ${activeTab === 'HISTORY' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                >
+                  Historique ({historyMissions.length})
+                </button>
+              </div>
+
+              <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
+                {/* COURSES EN COURS */}
+                {activeTab === 'ACTIVE' && (
+                  activeMissions.length === 0 ? (
+                    <div className="px-5 py-8 text-center"><p className="text-xs text-slate-400 font-medium">Aucun vecteur en transit.</p></div>
+                  ) : (
+                    activeMissions.map((m) => (
+                      <div key={m.id} className="px-4 py-3.5 hover:bg-slate-50/60 transition-colors">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-950 truncate tracking-tight">{m.title}</p>
+                            <p className="text-[11px] text-slate-400 mt-0.5 font-mono">{m.price} €</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`px-2 py-0.5 rounded-md font-bold text-[9px] tracking-wider uppercase border ${
+                              m.status === 'ACCEPTED' ? 'bg-slate-950 text-white border-transparent' :
+                              m.status === 'REFUSED'  ? 'bg-rose-50 text-rose-700 border-rose-100' :
+                                                        'bg-amber-50 text-amber-700 border-amber-100'
+                            }`}>
+                              {m.status === 'PENDING'   && ' Attente'}
+                              {m.status === 'ACCEPTED'  && ' Transit'}
+                              {m.status === 'REFUSED'   && ' Refusé'}
+                            </span>
+                            {m.status === 'PENDING' && (
+                              <button onClick={() => handleDeleteMission(m.id)} className="p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 transition border border-transparent hover:border-rose-100 cursor-pointer" type="button">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            )}
+                          </div>
+                        </div>
                         {m.validationCode && (
-                        <p className="text-indigo-600 font-mono font-bold text-[11px] mt-0.5">🔑 Code sécurisé : {m.validationCode}</p>
+                          <div className="mt-2.5 flex items-center justify-between bg-slate-50 border border-slate-200/60 rounded-xl px-3 py-1.5">
+                            <span className="text-slate-400 text-[9px] font-bold uppercase tracking-widest">Token Client</span>
+                            <span className="text-slate-950 font-mono font-bold text-xs tracking-wider">{m.validationCode}</span>
+                          </div>
                         )}
                       </div>
+                    ))
+                  )
+                )}
+
+                {/* HISTORIQUE */}
+                {activeTab === 'HISTORY' && (
+                  <div className="divide-y divide-slate-100">
+                    <div className="bg-slate-950 px-4 py-3 flex justify-between items-center text-[11px] text-white">
+                      <span className="font-medium opacity-70">Volume total généré</span>
+                      <span className="font-mono font-bold text-xs text-emerald-400">{totalEarnings} €</span>
                     </div>
-                  ))}
-                </div>
-              )}
+
+                    {historyMissions.length === 0 ? (
+                      <div className="px-5 py-8 text-center"><p className="text-xs text-slate-400 font-medium">L'archive est vierge.</p></div>
+                    ) : (
+                      historyMissions.map((m) => (
+                        <div key={m.id} className="px-4 py-3.5 bg-white hover:bg-slate-50/50 transition-colors">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-slate-800 truncate tracking-tight">{m.title}</p>
+                              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Acheminement validé</p>
+                            </div>
+                            <div className="shrink-0">
+                              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100/60 rounded-lg font-mono">+{m.price} €</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="lg:col-span-3">
+          {/* PANEL DE DROITE : BLOC CARTE GRAND FORMAT */}
+          <div className="lg:col-span-3 rounded-2xl overflow-hidden border border-slate-200/70 shadow-md bg-white p-2">
             <MapWithNoSSR />
           </div>
+          
         </div>
       </div>
     </main>

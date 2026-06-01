@@ -9,7 +9,8 @@ const BACKEND_URL = 'http://172.20.10.7:3000'; // Mets bien l'IP de ton Mac ici
 export default function App() {
   // Navigation Screens
   const [screen, setScreen] = useState<'LOGIN' | 'REGISTER' | 'HOME'>('LOGIN');
-  
+  const [activeTab, setActiveTab] = useState<'MARKET' | 'SETTINGS'>('MARKET');
+
   // États Formulaires
   const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
@@ -27,9 +28,14 @@ export default function App() {
   const [activeMission, setActiveMission] = useState<any | null>(null);
   const [modalVisible, setModalVisible] = useState<boolean>(false);
   const [incomingMission, setIncomingMission] = useState<any | null>(null);
+  const [completedCount, setCompletedCount] = useState<number>(0);
 
   // ⚡ ÉTAT SAISIE DU CODE CLIENT
   const [inputCode, setInputCode] = useState('');
+
+  // Paramètres : champs modifiables
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editImage, setEditImage] = useState<string | null>(null);
 
   // Sélection de la photo de profil
   const pickImage = async () => {
@@ -42,6 +48,30 @@ export default function App() {
     if (!result.canceled) {
       setProfileImage(result.assets[0].uri);
     }
+  };
+
+  // Sélection de la photo depuis les paramètres
+  const pickImageSettings = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.3,
+    });
+    if (!result.canceled) {
+      setEditImage(result.assets[0].uri);
+    }
+  };
+
+  // Sauvegarder les modifications du profil (local uniquement)
+  const saveProfileChanges = () => {
+    if (!editFirstName.trim()) return alert("Le prénom ne peut pas être vide !");
+    setCurrentUser((prev: any) => ({
+      ...prev,
+      firstName: editFirstName,
+      profileImage: editImage,
+    }));
+    alert("Profil mis à jour ✅");
   };
 
   // ⚡ ITINÉRAIRE 1 : Aller au point de récupération (Magasin / Expéditeur)
@@ -79,6 +109,8 @@ export default function App() {
   // Initialiser les WebSockets et le GPS après Auth réussie
   const startLivreurSession = (user: any) => {
     setCurrentUser(user);
+    setEditFirstName(user.firstName);
+    setEditImage(user.profileImage || null);
     const userId = `intervenant_${user.firstName.toLowerCase()}_${user.id}`;
 
     const newSocket = io(BACKEND_URL);
@@ -107,17 +139,23 @@ export default function App() {
           }
           return currentIncoming;
         });
-        console.log(`🗑️ Mission ${updatedId} effacée du mobile en live.`);
       } else if (updatedMission.status === 'DELIVERED') {
         setActiveMission(updatedMission);
       }
     });
 
+    // 🚀 CORRECTIF PERSISTANCE : Récupération intelligente au chargement
     fetch(`${BACKEND_URL}/missions/user/${userId}`)
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
           setAvailableMissions(data.filter(m => m.status === 'PENDING'));
+          setCompletedCount(data.filter(m => m.status === 'DELIVERED').length);
+
+          const ongoingMission = data.find(m => m.status === 'ACCEPTED');
+          if (ongoingMission) {
+            setActiveMission(ongoingMission);
+          }
         }
       })
       .catch(err => console.error(err));
@@ -223,6 +261,7 @@ export default function App() {
       }
 
       setActiveMission(data);
+      setCompletedCount(prev => prev + 1);
       setInputCode('');
     } catch (err) { 
       console.error(err); 
@@ -302,9 +341,13 @@ export default function App() {
   // --- RENDU ÉCRAN : DASHBOARD HOME ---
   return (
     <View style={styles.container}>
+      {/* HEADER */}
       <View style={styles.headerProfile}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Image source={currentUser?.profileImage ? { uri: currentUser.profileImage } : { uri: 'https://via.placeholder.com/150' }} style={styles.miniAvatar} />
+          <Image
+            source={currentUser?.profileImage ? { uri: currentUser.profileImage } : { uri: 'https://via.placeholder.com/150' }}
+            style={styles.miniAvatar}
+          />
           <View style={{ marginLeft: 12 }}>
             <Text style={styles.welcomeText}>👋 Bienvenue, {currentUser?.firstName} !</Text>
             <Text style={styles.roleText}>{currentUser?.email}</Text>
@@ -313,85 +356,157 @@ export default function App() {
         <View style={[styles.miniStatusBadge, { backgroundColor: connected ? '#4CD964' : '#FF3B30' }]} />
       </View>
 
-      {/* 🏃 EXÉCUTION DE MISSION AVEC LES 2 ITINÉRAIRES DISTINCTS */}
-      {activeMission && activeMission.status === 'ACCEPTED' ? (
-        <View style={{ flex: 1, width: '100%' }}>
-          <View style={styles.missionActiveCard}>
-            <Text style={styles.missionActiveTitle}>🏃 MISSION EN COURS D'EXÉCUTION</Text>
-            <Text style={styles.missionTitleText}>{activeMission.title}</Text>
-            <Text style={styles.missionPriceText}>{activeMission.price} €</Text>
-            <Text style={styles.missionDesc}>{activeMission.description}</Text>
+      {/* STATS RAPIDES */}
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{completedCount}</Text>
+          <Text style={styles.statLabel}>Courses effectuées</Text>
+        </View>
+        <View style={[styles.statCard, { borderColor: '#007AFF22', backgroundColor: '#F0F6FF' }]}>
+          <Text style={[styles.statNumber, { color: '#007AFF' }]}>{availableMissions.length}</Text>
+          <Text style={styles.statLabel}>Disponibles</Text>
+        </View>
+      </View>
 
-            {/* 📍 LES DEUX BOUTONS DE NAVIGATION GPS */}
-            <View style={{ marginVertical: 10 }}>
-              <TouchableOpacity style={[styles.navigationGpsButton, { backgroundColor: '#FF9500' }]} onPress={openGPSPickup}>
-                <Text style={styles.buttonText}>📦 Étape 1 : Aller récupérer le colis</Text>
-              </TouchableOpacity>
+      {/* CONTENU PRINCIPAL */}
+      <View style={{ flex: 1 }}>
+        {activeTab === 'SETTINGS' ? (
+          /* ——— PAGE PARAMÈTRES ——— */
+          <ScrollView contentContainerStyle={styles.settingsContainer}>
+            <Text style={styles.settingsTitle}>⚙️ Mon Profil</Text>
 
-              <TouchableOpacity style={[styles.navigationGpsButton, { backgroundColor: '#007AFF', marginTop: 10 }]} onPress={openGPSDelivery}>
-                <Text style={styles.buttonText}>🏁 Étape 2 : Aller livrer le client</Text>
-              </TouchableOpacity>
-            </View>
-            
-            {/* 🔐 ENTRÉE DU CODE DE SÉCURITÉ CLIENT REQUIRED */}
-            <View style={{ marginTop: 15, borderTopWidth: 1, borderColor: '#3A3A3C', paddingTop: 15 }}>
-              <Text style={{ color: '#FF9500', fontWeight: 'bold', fontSize: 11, marginBottom: 5 }}>🔒 CODE DE VALIDATION EXIGÉ (3 CHIFFRES)</Text>
-              <TextInput 
-                style={styles.codeInputField} 
-                placeholder="---" 
-                placeholderTextColor="#8E8E93" 
-                keyboardType="number-pad" 
-                maxLength={3} 
-                value={inputCode} 
-                onChangeText={setInputCode} 
+            {/* Avatar modifiable */}
+            <TouchableOpacity style={styles.avatarPicker} onPress={pickImageSettings}>
+              {editImage ? (
+                <Image source={{ uri: editImage }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarPlaceholderText}>📸 Changer la photo</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <Text style={styles.settingsHint}>Appuie sur la photo pour la modifier</Text>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Prénom</Text>
+              <TextInput
+                style={styles.input}
+                value={editFirstName}
+                onChangeText={setEditFirstName}
+                placeholder="Ton prénom"
+                placeholderTextColor="#AEAEB2"
               />
             </View>
 
-            <TouchableOpacity style={styles.completeButton} onPress={completeMission}>
-              <Text style={styles.buttonText}>✓ Confirmer le code & Terminer la course</Text>
+            <View style={[styles.inputGroup, { opacity: 0.5 }]}>
+              <Text style={styles.inputLabel}>Email (non modifiable)</Text>
+              <TextInput
+                style={styles.input}
+                value={currentUser?.email}
+                editable={false}
+              />
+            </View>
+
+            <TouchableOpacity style={styles.submitAuthButton} onPress={saveProfileChanges}>
+              <Text style={styles.buttonText}>💾 Sauvegarder les modifications</Text>
             </TouchableOpacity>
-          </View>
-        </View>
-      ) : activeMission && activeMission.status === 'DELIVERED' ? (
-        <View style={styles.successCard}>
-          <Text style={styles.successTitle}>🎉 Bravo {currentUser?.firstName} !</Text>
-          <Text style={styles.successText}>Course validée avec succès. Commission de {activeMission.price} € ajoutée à ton compte.</Text>
-          <TouchableOpacity style={styles.clearButton} onPress={() => setActiveMission(null)}>
-            <Text style={styles.clearButtonText}>Retourner au marché</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={{ flex: 1, width: '100%' }}>
-          <Text style={styles.marketTitle}>💼 Missions disponibles autour de toi :</Text>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
-            {availableMissions.length === 0 ? (
-              <View style={styles.emptyMarket}>
-                <Text style={styles.emptyMarketText}>⏳ Aucune offre pour le moment...</Text>
-              </View>
-            ) : (
-              availableMissions.map((m) => (
-                <View key={m.id} style={styles.marketCard}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <View style={{ flex: 1, paddingRight: 10 }}>
-                      <Text style={styles.marketCardTitle}>{m.title}</Text>
-                      {m.distanceToPickup && (
-                        <Text style={{ color: '#007AFF', fontSize: 12, fontWeight: '700', marginTop: 2 }}>
-                          📍 À {m.distanceToPickup} km de toi
-                        </Text>
-                      )}
-                      <Text style={styles.marketCardDesc} numberOfLines={2}>{m.description}</Text>
-                    </View>
-                    <Text style={styles.marketCardPrice}>{m.price} €</Text>
-                  </View>
-                  <TouchableOpacity style={styles.acceptJobButton} onPress={() => acceptMission(m.id)}>
-                    <Text style={styles.acceptJobButtonText}>⚡ Accepter la course</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
           </ScrollView>
-        </View>
-      )}
+
+        ) : (
+          /* ——— PAGE MARCHÉ / MISSIONS ——— */
+          <>
+            {activeMission && activeMission.status === 'ACCEPTED' ? (
+              <View style={{ flex: 1, width: '100%' }}>
+                <View style={styles.missionActiveCard}>
+                  <Text style={styles.missionActiveTitle}>🏃 MISSION EN COURS D'EXÉCUTION</Text>
+                  <Text style={styles.missionTitleText}>{activeMission.title}</Text>
+                  <Text style={styles.missionPriceText}>{activeMission.price} €</Text>
+                  <Text style={styles.missionDesc}>{activeMission.description}</Text>
+
+                  <View style={{ marginTop: 15, borderTopWidth: 1, borderColor: '#3A3A3C', paddingTop: 15 }}>
+                    <Text style={{ color: '#FF9500', fontWeight: 'bold', fontSize: 11, marginBottom: 5 }}>🔒 CODE DE VALIDATION EXIGÉ (3 CHIFFRES)</Text>
+                    <TextInput
+                      style={styles.codeInputField}
+                      placeholder="---"
+                      placeholderTextColor="#8E8E93"
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      value={inputCode}
+                      onChangeText={setInputCode}
+                    />
+                  </View>
+                  <TouchableOpacity style={styles.completeButton} onPress={completeMission}>
+                    <Text style={styles.buttonText}>✓ Confirmer le code & Terminer la course</Text>
+                  </TouchableOpacity>
+
+                  <View style={{ marginVertical: 10 }}>
+                    <TouchableOpacity style={[styles.navigationGpsButton, { backgroundColor: '#FF9500' }]} onPress={openGPSPickup}>
+                      <Text style={styles.buttonText}>📦 Étape 1 : Aller récupérer le colis</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.navigationGpsButton, { backgroundColor: '#007AFF', marginTop: 10 }]} onPress={openGPSDelivery}>
+                      <Text style={styles.buttonText}>🏁 Étape 2 : Aller livrer le client</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+            ) : activeMission && activeMission.status === 'DELIVERED' ? (
+              <View style={styles.successCard}>
+                <Text style={styles.successTitle}>🎉 Bravo {currentUser?.firstName} !</Text>
+                <Text style={styles.successText}>Course validée avec succès. Commission de {activeMission.price} € ajoutée à ton compte.</Text>
+                <TouchableOpacity style={styles.clearButton} onPress={() => setActiveMission(null)}>
+                  <Text style={styles.clearButtonText}>Retourner au marché</Text>
+                </TouchableOpacity>
+              </View>
+
+            ) : (
+              <View style={{ flex: 1, width: '100%' }}>
+                <Text style={styles.marketTitle}>💼 Missions disponibles autour de toi :</Text>
+                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
+                  {availableMissions.length === 0 ? (
+                    <View style={styles.emptyMarket}>
+                      <Text style={styles.emptyMarketText}>⏳ Aucune offre pour le moment...</Text>
+                    </View>
+                  ) : (
+                    availableMissions.map((m) => (
+                      <View key={m.id} style={styles.marketCard}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <View style={{ flex: 1, paddingRight: 10 }}>
+                            <Text style={styles.marketCardTitle}>{m.title}</Text>
+                            {m.distanceToPickup && (
+                              <Text style={{ color: '#007AFF', fontSize: 12, fontWeight: '700', marginTop: 2 }}>
+                                📍 À {m.distanceToPickup} km de toi
+                              </Text>
+                            )}
+                            <Text style={styles.marketCardDesc} numberOfLines={2}>{m.description}</Text>
+                          </View>
+                          <Text style={styles.marketCardPrice}>{m.price} €</Text>
+                        </View>
+                        <TouchableOpacity style={styles.acceptJobButton} onPress={() => acceptMission(m.id)}>
+                          <Text style={styles.acceptJobButtonText}>⚡ Accepter la course</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </>
+        )}
+      </View>
+
+      {/* BARRE DE NAVIGATION BAS */}
+      <View style={styles.tabBar}>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('MARKET')}>
+          <Text style={[styles.tabIcon, activeTab === 'MARKET' && styles.tabIconActive]}>🏠</Text>
+          <Text style={[styles.tabLabel, activeTab === 'MARKET' && styles.tabLabelActive]}>Accueil</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('SETTINGS')}>
+          <Text style={[styles.tabIcon, activeTab === 'SETTINGS' && styles.tabIconActive]}>⚙️</Text>
+          <Text style={[styles.tabLabel, activeTab === 'SETTINGS' && styles.tabLabelActive]}>Paramètres</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* MODAL UBER POPUP */}
       <Modal animationType="slide" transparent={true} visible={modalVisible}>
@@ -428,12 +543,20 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#F2F2F7', padding: 14, borderRadius: 10, fontSize: 15, color: '#1C1C1E' },
   submitAuthButton: { backgroundColor: '#1C1C1E', padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 10 },
   buttonText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
+
   container: { flex: 1, backgroundColor: '#F5F5F7', paddingTop: Platform.OS === 'ios' ? 60 : 30, paddingHorizontal: 16 },
-  headerProfile: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', padding: 12, borderRadius: 14, marginBottom: 20 },
+  headerProfile: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFF', padding: 12, borderRadius: 14, marginBottom: 12 },
   miniAvatar: { width: 40, height: 40, borderRadius: 20 },
   welcomeText: { fontSize: 15, fontWeight: 'bold', color: '#1C1C1E' },
   roleText: { fontSize: 12, color: '#8E8E93' },
   miniStatusBadge: { width: 10, height: 10, borderRadius: 5 },
+
+  // Stats rapides
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  statCard: { flex: 1, backgroundColor: '#F0FFF4', borderRadius: 12, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#4CD96422' },
+  statNumber: { fontSize: 26, fontWeight: '800', color: '#4CD964' },
+  statLabel: { fontSize: 11, color: '#8E8E93', fontWeight: '600', marginTop: 2, textAlign: 'center' },
+
   marketTitle: { fontSize: 15, fontWeight: '700', color: '#1C1C1E', marginBottom: 10 },
   emptyMarket: { backgroundColor: '#FFF', padding: 30, borderRadius: 14, alignItems: 'center', borderWidth: 1, borderColor: '#E5E5EA' },
   emptyMarketText: { fontSize: 14, fontWeight: '600', color: '#8E8E93' },
@@ -454,6 +577,21 @@ const styles = StyleSheet.create({
   successText: { fontSize: 13, color: '#3A3A3C', textAlign: 'center', marginTop: 5 },
   clearButton: { marginTop: 15, backgroundColor: '#F2F2F7', paddingVertical: 10, paddingHorizontal: 15, borderRadius: 8 },
   clearButtonText: { color: '#1C1C1E', fontWeight: '600' },
+
+  // Tab bar
+  tabBar: { flexDirection: 'row', backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#E5E5EA', paddingBottom: Platform.OS === 'ios' ? 20 : 8, paddingTop: 8 },
+  tabItem: { flex: 1, alignItems: 'center', gap: 2 },
+  tabIcon: { fontSize: 22 },
+  tabIconActive: { opacity: 1 },
+  tabLabel: { fontSize: 11, color: '#8E8E93', fontWeight: '600' },
+  tabLabelActive: { color: '#1C1C1E', fontWeight: '700' },
+
+  // Paramètres
+  settingsContainer: { paddingBottom: 40, paddingTop: 10 },
+  settingsTitle: { fontSize: 20, fontWeight: '800', color: '#1C1C1E', marginBottom: 4 },
+  settingsHint: { textAlign: 'center', color: '#8E8E93', fontSize: 12, marginBottom: 20 },
+
+  // Modal
   modalContainer: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
   modalContent: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, alignItems: 'center' },
   modalBadge: { color: '#007AFF', fontWeight: 'bold', fontSize: 10, backgroundColor: '#E5F1FF', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
@@ -462,8 +600,8 @@ const styles = StyleSheet.create({
   modalButtonsRow: { flexDirection: 'row', width: '100%', justifyContent: 'space-between', marginTop: 15 },
   declineButton: { width: '46%', padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#FFE5E5' },
   acceptButton: { width: '46%', padding: 12, borderRadius: 10, alignItems: 'center', backgroundColor: '#1C1C1E' },
-  
-  // Styles du bouton GPS et de la saisie sécurisée
+
+  // GPS & code
   navigationGpsButton: { padding: 14, borderRadius: 10, alignItems: 'center' },
-  codeInputField: { backgroundColor: '#2C2C2E', padding: 12, borderRadius: 8, color: '#FFF', fontSize: 20, fontWeight: 'bold', textAlign: 'center', letterSpacing: 8, marginVertical: 8 }
+  codeInputField: { backgroundColor: '#2C2C2E', padding: 12, borderRadius: 8, color: '#FFF', fontSize: 20, fontWeight: 'bold', textAlign: 'center', letterSpacing: 8, marginVertical: 8 },
 });

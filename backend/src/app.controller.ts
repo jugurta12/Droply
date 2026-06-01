@@ -88,7 +88,7 @@ export class AppController {
     return updatedMission;
   }
 
-  // 2. Récupérer les missions d'un livreur spécifique
+// 2. Récupérer TOUTES les missions d'un livreur (avec calcul de distance pour les PENDING)
   @Get('missions/user/:userId')
   async getUserMissions(@Param('userId') userId: string) {
     // A. Trouver le dernier point GPS connu de ce livreur
@@ -97,13 +97,13 @@ export class AppController {
       order: { createdAt: 'DESC' },
     });
 
-    // B. Récupérer toutes les missions en attente
+    // 🚀 CORRECTIF : On récupère TOUTES les missions attribuées à cet ID (sans filtrer sur PENDING uniquement)
     const missions = await this.missionRepository.find({
-      where: { status: MissionStatus.PENDING },
+      where: { userId },
       order: { createdAt: 'DESC' },
     });
 
-    // C. Si on a le GPS du livreur, on calcule la distance pour chaque mission en SQL/Maths
+    // C. Si on a le GPS du livreur, on calcule la distance à vol d'oiseau
     if (lastUserLocation) {
       const lat1 = lastUserLocation.latitude;
       const lng1 = lastUserLocation.longitude;
@@ -112,8 +112,8 @@ export class AppController {
         const lat2 = mission.pickupLatitude;
         const lng2 = mission.pickupLongitude;
 
-        // Formule de Haversine pour calculer la distance à vol d'oiseau entre deux coordonnées GPS
-        const R = 6371; // Rayon de la Terre en km
+        // Formule de Haversine
+        const R = 6371; 
         const dLat = (lat2 - lat1) * (Math.PI / 180);
         const dLng = (lng2 - lng1) * (Math.PI / 180);
         const a =
@@ -121,16 +121,16 @@ export class AppController {
           Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) *
           Math.sin(dLng / 2) * Math.sin(dLng / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distance = R * c; // Distance finale en kilomètres
+        const distance = R * c;
 
         return {
           ...mission,
-          distanceToPickup: distance.toFixed(1), // Arrondi à 1 chiffre après la virgule (ex: "2.4")
+          distanceToPickup: distance.toFixed(1),
         };
       });
     }
 
-    // Si le livreur n'a pas encore de point GPS, on renvoie les missions sans distance
+    // Si pas de point GPS, on renvoie tout sans distance
     return missions.map(m => ({ ...m, distanceToPickup: null }));
   }
 
@@ -182,5 +182,35 @@ export class AppController {
     this.gpsGateway.server.emit('admin_mission_updated', { id: missionIdToSend, status: 'DELETED' }); 
 
     return { success: true, message: "Mission supprimée avec succès." };
+  }
+
+  // 4. Mettre à jour le profil d'un utilisateur (Prénom et Photo)
+  @Put('auth/update-profile/:id')
+  async updateProfile(
+    @Param('id') id: number,
+    @Body() body: { firstName: string; profileImage: string },
+  ) {
+    const user = await this.userRepository.findOne({ where: { id } });
+    if (!user) {
+      throw new BadRequestException("Utilisateur introuvable");
+    }
+
+    // Mise à jour des champs modifiés
+    user.firstName = body.firstName;
+    if (body.profileImage) {
+      user.profileImage = body.profileImage;
+    }
+
+    const updatedUser = await this.userRepository.save(user);
+
+    return { 
+      success: true, 
+      user: { 
+        id: updatedUser.id, 
+        firstName: updatedUser.firstName, 
+        email: updatedUser.email, 
+        profileImage: updatedUser.profileImage 
+      } 
+    };
   }
 }
