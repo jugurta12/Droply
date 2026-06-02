@@ -3,6 +3,8 @@ import { StyleSheet, Text, View, Platform, TouchableOpacity, ScrollView, Image, 
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { io, Socket } from 'socket.io-client';
+// ⚡ IMPORT DU MODULE DE STOCKAGE NATIF
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BACKEND_URL = 'http://172.20.10.7:3000'; // Mets bien l'IP de ton Mac ici
 
@@ -10,6 +12,7 @@ export default function App() {
   // Navigation Screens
   const [screen, setScreen] = useState<'LOGIN' | 'REGISTER' | 'HOME'>('LOGIN');
   const [activeTab, setActiveTab] = useState<'MARKET' | 'SETTINGS'>('MARKET');
+  const [appLoading, setAppLoading] = useState<boolean>(true); // Écran d'attente initial
 
   // États Formulaires
   const [firstName, setFirstName] = useState('');
@@ -36,6 +39,26 @@ export default function App() {
   // Paramètres : champs modifiables
   const [editFirstName, setEditFirstName] = useState('');
   const [editImage, setEditImage] = useState<string | null>(null);
+
+  // ⚡ AUTO-CONNEXION : Vérifie au tout premier démarrage si une session existe
+  useEffect(() => {
+    const checkSavedSession = async () => {
+      try {
+        const savedUserJson = await AsyncStorage.getItem('@droply_user_session');
+        if (savedUserJson !== null) {
+          const user = JSON.parse(savedUserJson);
+          console.log("🔒 Session trouvée en mémoire pour :", user.firstName);
+          startLivreurSession(user);
+        } else {
+          setAppLoading(false);
+        }
+      } catch (err) {
+        console.error("Erreur lecture session", err);
+        setAppLoading(false);
+      }
+    };
+    checkSavedSession();
+  }, []);
 
   // Sélection de la photo de profil
   const pickImage = async () => {
@@ -64,14 +87,36 @@ export default function App() {
   };
 
   // Sauvegarder les modifications du profil (local uniquement)
-  const saveProfileChanges = () => {
+  const saveProfileChanges = async () => {
     if (!editFirstName.trim()) return alert("Le prénom ne peut pas être vide !");
-    setCurrentUser((prev: any) => ({
-      ...prev,
+    const updatedUser = {
+      ...currentUser,
       firstName: editFirstName,
       profileImage: editImage,
-    }));
+    };
+    setCurrentUser(updatedUser);
+    // On met aussi à jour la mémoire persistante locale
+    await AsyncStorage.setItem('@droply_user_session', JSON.stringify(updatedUser));
     alert("Profil mis à jour ✅");
+  };
+
+  // ⚡ LOGIQUE DE DÉCONNEXION (Vide la mémoire et revient au Login)
+  const handleLogout = async () => {
+    try {
+      if (socket) socket.disconnect();
+      await AsyncStorage.removeItem('@droply_user_session');
+      setCurrentUser(null);
+      setFirstName('');
+      setEmail('');
+      setPassword('');
+      setProfileImage(null);
+      setActiveMission(null);
+      setAvailableMissions([]);
+      setScreen('LOGIN');
+      setActiveTab('MARKET');
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // ⚡ ITINÉRAIRE 1 : Aller au point de récupération (Magasin / Expéditeur)
@@ -137,8 +182,6 @@ export default function App() {
       if (mission.status === 'PENDING') {
         let updatedMission = { ...mission };
         
-        // Si le mobile a déjà un point GPS actif, on injecte la distance calculée en temps réel
-        // Cela évite d'attendre un rechargement de l'application
         setLocation((currentLocation) => {
           if (currentLocation) {
             updatedMission.distanceToPickup = calculateDistanceLocally(
@@ -208,6 +251,7 @@ export default function App() {
     })();
 
     setScreen('HOME');
+    setAppLoading(false); // Arrête le loader d'initialisation
   };
 
   // Soumettre l'Inscription
@@ -224,6 +268,8 @@ export default function App() {
     if (data.error) return alert(data.error);
     if (data.success) {
       alert("Compte créé avec succès !");
+      // ⚡ SAUVEGARDE EN MÉMOIRE DE LA SESSION REUSSIE
+      await AsyncStorage.setItem('@droply_user_session', JSON.stringify(data.user));
       startLivreurSession(data.user);
     }
   };
@@ -241,6 +287,8 @@ export default function App() {
 
     if (data.error) return alert(data.error);
     if (data.success) {
+      // ⚡ SAUVEGARDE EN MÉMOIRE DE LA SESSION REUSSIE
+      await AsyncStorage.setItem('@droply_user_session', JSON.stringify(data.user));
       startLivreurSession(data.user);
     }
   };
@@ -297,6 +345,16 @@ export default function App() {
       console.error(err); 
     }
   };
+
+  // ÉCRAN BLANC DE TRANSITION PENDANT LA LECTURE DU STOCKAGE MEMOIRE
+  if (appLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ fontSize: 16, fontWeight: '700', color: '#1C1C1E', marginBottom: 10 }}>Droply Express</Text>
+        <Text style={{ fontSize: 12, color: '#8E8E93' }}>Vérification de la session en cours...</Text>
+      </View>
+    );
+  }
 
   // --- RENDU ÉCRAN : CONNEXION ---
   if (screen === 'LOGIN') {
@@ -437,8 +495,13 @@ export default function App() {
               />
             </View>
 
-            <TouchableOpacity style={styles.submitAuthButton} onPress={saveProfileChanges}>
+            <TouchableOpacity style={styles.saveChangesButton} onPress={saveProfileChanges}>
               <Text style={styles.buttonText}> Sauvegarder les modifications</Text>
+            </TouchableOpacity>
+
+            {/* ⚡ BOUTON DE DÉCONNEXION LIÉ À LOGOUT LOGIC */}
+            <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+              <Text style={styles.buttonText}>🔒 Déconnexion sécurisée</Text>
             </TouchableOpacity>
           </ScrollView>
 
@@ -620,6 +683,8 @@ const styles = StyleSheet.create({
   settingsContainer: { paddingBottom: 40, paddingTop: 10 },
   settingsTitle: { fontSize: 20, fontWeight: '800', color: '#1C1C1E', marginBottom: 4 },
   settingsHint: { textAlign: 'center', color: '#8E8E93', fontSize: 12, marginBottom: 20 },
+  saveChangesButton: { backgroundColor: '#1C1C1E', padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 10 },
+  logoutButton: { backgroundColor: '#FF3B30', padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 25 },
 
   // Modal
   modalContainer: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
