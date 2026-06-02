@@ -19,4 +19,7 @@ export class UserEntity {
 
   @CreateDateColumn()
   createdAt!: Date;
+
+  @Column({ default: 'LIVREUR' })
+    role!: 'ADMIN' | 'LIVREUR' | 'CLIENT';
 }

@@ -213,4 +213,25 @@ export class AppController {
       } 
     };
   }
+
+
+  @Post('locations/background')
+  async saveBackgroundLocation(@Body() body: { userId: string; latitude: number; longitude: number }) {
+    const location = this.locationRepository.create({
+      userId: body.userId,
+      latitude: body.latitude,
+      longitude: body.longitude,
+    });
+    await this.locationRepository.save(location);
+
+    // On prévient l'admin en temps réel via la Gateway
+    this.gpsGateway.server.emit('admin_location_moved', {
+      userId: body.userId,
+      latitude: body.latitude,
+      longitude: body.longitude,
+      timestamp: new Date(),
+    });
+
+    return { success: true };
+  }
 }
