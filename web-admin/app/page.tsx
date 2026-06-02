@@ -21,6 +21,13 @@ export default function Home() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(false);
 
+  // ⚡ NAVIGATION : 'DASHBOARD' pour l'accueil cartographique, 'CONTROL_CENTER' pour la gestion des utilisateurs
+  const [currentView, setCurrentView] = useState<'DASHBOARD' | 'CONTROL_CENTER'>('DASHBOARD');
+
+  // ⚡ ETATS COMPTES ET SUCKETS MULTI-LIVREURS
+  const [allDbUsers, setAllDbUsers] = useState<any[]>([]); // Tous les utilisateurs (Admin, Client, Livreur)
+  const [connectedDrivers, setConnectedDrivers] = useState<any[]>([]); // Uniquement les livreurs connectés au Socket
+
   // États du Dashboard
   const [activeUser, setActiveUser] = useState<string | null>(null);
   const [lastSeen, setLastSeen] = useState<string>("En attente d'un signal livreur...");
@@ -51,6 +58,25 @@ export default function Home() {
       setIsAdminAuthenticated(true);
     }
   }, []);
+
+  // ⚡ RECUPERATION TOUS LES UTILISATEURS DU CENTRE DE CONTROLE
+  const loadAllDatabaseUsers = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/auth/users');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setAllDbUsers(data);
+      }
+    } catch (err) {
+      console.error("Erreur récupération comptes :", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdminAuthenticated) {
+      loadAllDatabaseUsers();
+    }
+  }, [isAdminAuthenticated, currentView]);
 
   const loadLastKnownLocation = (id: string) => {
     fetch(`http://localhost:3000/locations/last/${id}`)
@@ -88,13 +114,30 @@ export default function Home() {
     const socket = io('http://localhost:3000');
 
     socket.on('admin_location_moved', (data: { userId: string; timestamp: string }) => {
-      setActiveUser(data.userId);
-      setIsOnline(true);
-      const date = new Date(data.timestamp);
-      setLastSeen(`En ligne (Mis à jour à ${date.toLocaleTimeString()})`);
+      // Extraction des métadonnées pour le menu déroulant dynamique des livreurs connectés
+      setConnectedDrivers(prev => {
+        if (prev.some(d => d.socketId === data.userId)) return prev;
+        
+        // On essaye de reconstruire proprement un affichage lisible à partir du pattern "intervenant_nom_id"
+        const parts = data.userId.split('_');
+        const displayLabel = parts[1] ? parts[1].charAt(0).toUpperCase() + parts[1].slice(1) : data.userId;
+        return [...prev, { socketId: data.userId, label: displayLabel }];
+      });
+
+      if (!activeUser) {
+        setActiveUser(data.userId);
+      }
+
+      if (data.userId === activeUser) {
+        setIsOnline(true);
+        const date = new Date(data.timestamp);
+        setLastSeen(`En ligne (Mis à jour à ${date.toLocaleTimeString()})`);
+      }
     });
 
     socket.on('admin_user_offline', (data: { userId: string }) => {
+      setConnectedDrivers(prev => prev.filter(d => d.socketId !== data.userId));
+      
       if (data.userId === activeUser) {
         setIsOnline(false);
         loadLastKnownLocation(data.userId);
@@ -113,6 +156,45 @@ export default function Home() {
 
     return () => socket.disconnect();
   }, [activeUser, isAdminAuthenticated]);
+
+  // ⚡ DISPATCHER DE SÉLECTION DANS LE MENU DÉROULANT DE L'ACCUEIL
+  const handleSelectConnectedDriver = (socketId: string) => {
+    setActiveUser(socketId);
+    setIsOnline(true);
+    setLastSeen("En ligne (Flux actif)");
+    loadUserMissions(socketId);
+  };
+
+  // ⚡ MANAGEMENT CRUD : UPDATE RÔLE DANS LE CENTRE DE CONTRÔLE
+  const handleChangeRoleInControlCenter = async (userId: number, nextRole: string) => {
+    try {
+      const response = await fetch(`http://localhost:3000/auth/users/${userId}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: nextRole }),
+      });
+      if (response.ok) {
+        loadAllDatabaseUsers();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // ⚡ MANAGEMENT CRUD : BAN / SUPPRESSION DANS LE CENTRE DE CONTRÔLE
+  const handleDeleteUserInControlCenter = async (userId: number, firstName: string) => {
+    if (!confirm(`Confirmer la suppression définitive du compte de ${firstName} ?`)) return;
+    try {
+      const response = await fetch(`http://localhost:3000/auth/users/${userId}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        loadAllDatabaseUsers();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchSuggestions = async (text: string, setSuggestions: (data: any[]) => void) => {
     if (text.length < 3) {
@@ -170,7 +252,6 @@ export default function Home() {
         return setAuthError(data.error);
       }
 
-      // Vérification chirurgicale du rôle renvoyé par le backend
       if (data.success && data.user) {
         if (data.user.role === 'ADMIN') {
           setIsAdminAuthenticated(true);
@@ -192,6 +273,7 @@ export default function Home() {
     setMissions([]);
     setLoginEmail('');
     setLoginPassword('');
+    setCurrentView('DASHBOARD');
   };
 
   const handleSubmitMission = async (e: React.FormEvent) => {
@@ -246,18 +328,18 @@ export default function Home() {
   const historyMissions = missions.filter(m => m.status === 'DELIVERED');
   const totalEarnings = historyMissions.reduce((sum, m) => sum + parseFloat(m.price), 0).toFixed(2);
 
-  // ⚡ RENDU ÉCRAN 1 : FORMULAIRE DE CONNEXION SÉCURISÉ (SI PAS AUTHENTIFIÉ)
+  // RENDU : LOGIN SCREEN
   if (!isAdminAuthenticated) {
     return (
       <main className="min-h-screen bg-[#D9D9D9] flex items-center justify-center p-6 font-sans antialiased text-white">
-        <div className="w-full max-w-md bg-[#F8FAFC] border border-slate-700/60 p-8 rounded-2xl shadow-xl space-y-6">
+        <div className="w-full max-w-md bg-[#F8FAFC] border border-slate-200/60 p-8 rounded-2xl shadow-xl space-y-6">
           <div className="text-center space-y-2">
             <h1 className="text-2xl font-bold tracking-tight text-black">Droply Portal</h1>
             <p className="text-xs text-slate-900 font-medium">Console d'accès d'administration globale</p>
           </div>
 
           {authError && (
-            <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs p-3 rounded-xl font-medium tracking-tight leading-relaxed">
+            <div className="bg-rose-500/10 border border-rose-500/20 text-rose-600 text-xs p-3 rounded-xl font-medium tracking-tight leading-relaxed text-center">
                {authError}
             </div>
           )}
@@ -265,32 +347,16 @@ export default function Home() {
           <form onSubmit={handleAdminLogin} className="space-y-4 text-xs">
             <div>
               <label className="block text-slate-400 font-medium mb-1.5 uppercase tracking-wider text-[10px]">Identifiant de sécurité</label>
-              <input 
-                type="email" 
-                value={loginEmail} 
-                onChange={(e) => setLoginEmail(e.target.value)} 
-                placeholder="admin@droply.com" 
-                className="w-full px-3 py-2.5 bg-slate-000 border border-slate-700 rounded-xl text-black focus:outline-none focus:border-slate-500 transition font-medium" 
-              />
+              <input type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="admin@droply.com" className="w-full px-3 py-2.5 bg-slate-000 border border-slate-200 rounded-xl text-black focus:outline-none focus:border-slate-400 transition font-medium" />
             </div>
 
             <div>
               <label className="block text-slate-400 font-medium mb-1.5 uppercase tracking-wider text-[10px]">Clé de passe</label>
-              <input 
-                type="password" 
-                value={loginPassword} 
-                onChange={(e) => setLoginPassword(e.target.value)} 
-                placeholder="••••••••" 
-                className="w-full px-3 py-2.5 bg-slate-000 border border-slate-700 rounded-xl text-black focus:outline-none focus:border-slate-500 transition font-mono text-sm" 
-              />
+              <input type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} placeholder="••••••••" className="w-full px-3 py-2.5 bg-slate-000 border border-slate-200 rounded-xl text-black focus:outline-none focus:border-slate-400 transition font-mono text-sm" />
             </div>
 
-            <button 
-              type="submit" 
-              disabled={authLoading}
-              className="w-full bg-white text-slate-950 font-semibold py-3 rounded-xl hover:bg-slate-200 transition shadow-sm tracking-wide mt-4 flex items-center justify-center"
-            >
-              {authLoading ? 'Vérification des droits...' : 'Ouvrir la session sécurisée'}
+            <button type="submit" disabled={authLoading} className="w-full bg-slate-950 text-white font-semibold py-3 rounded-xl hover:bg-slate-800 transition shadow-sm tracking-wide mt-4 flex items-center justify-center">
+              {authLoading ? 'Vérification...' : 'Ouvrir la session sécurisée'}
             </button>
           </form>
         </div>
@@ -298,209 +364,306 @@ export default function Home() {
     );
   }
 
-  // ⚡ RENDU ÉCRAN 2 : LE DASHBOARD ADMINISTRATEUR (ACCESSIBLE UNIQUEMENT SI ROLE === 'ADMIN')
+  // RENDU INTERFACE PRINCIPALE
   return (
     <main className="min-h-screen bg-[#F8FAFC] p-6 lg:p-10 font-sans antialiased text-slate-900">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* HEADER SUBTILE ET CLASSE */}
+        {/* HEADER SUBTILE ET CLASSE AVEC SYSTEME DE NAVIGATION DE PAGE */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200/80 pb-6">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Droply Control Center</h1>
             <p className="text-xs text-slate-500 mt-1 font-medium">Console de supervision de flotte en temps réel</p>
-          </div>
-          <div className="flex items-center space-x-3 self-start sm:self-center">
+            <br />  
             <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border text-[11px] font-medium tracking-wide uppercase shadow-sm transition-all duration-300 ${
-              isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
-            }`}>
+              isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
               <span>{isOnline ? 'Live stream actif' : 'Mode synchrone historique'}</span>
             </div>
-
-            {/* ⚡ BOUTON DÉCONNEXION WEB */}
+          </div>
+          
+          <div className="flex items-center space-x-3 self-start sm:self-center">
+            
+            {/* ⚡ NAV BUTTONS POUR ALLER DANS LE CENTRE DE CONTROLE SANS TOUCHER AU STYLE */}
             <button 
-              onClick={handleAdminLogout} 
-              className="px-3 py-1.5 border border-slate-200 hover:border-slate-300 bg-white rounded-full text-[11px] text-slate-600 hover:text-slate-900 font-medium transition shadow-sm"
+              onClick={() => setCurrentView('DASHBOARD')}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-semibold transition shadow-sm border ${
+                currentView === 'DASHBOARD' ? 'bg-slate-950 text-white border-transparent' : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900'
+              }`}
             >
+              Moniteur Cartographique
+            </button>
+
+            <button 
+              onClick={() => setCurrentView('CONTROL_CENTER')}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-semibold transition shadow-sm border ${
+                currentView === 'CONTROL_CENTER' ? 'bg-slate-950 text-white border-transparent' : 'bg-white text-slate-600 border-slate-200 hover:text-slate-900'
+              }`}
+            >
+              Centre de Contrôle
+            </button>
+
+
+
+            <button onClick={handleAdminLogout} className="px-3 py-1.5 border border-slate-200 hover:border-slate-300 bg-white rounded-full text-[11px] text-slate-600 hover:text-slate-900 font-medium transition shadow-sm">
               Fermer la session 
             </button>
           </div>
         </div>
 
-        {/* ECOSYSTEM LAYOUT */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
+        {/* ⚡ APPAREIL MULTI-VUES : COMMUTATION DU CONTENU SANS MODIFIER LE STYLE GENERAL */}
+        {currentView === 'CONTROL_CENTER' ? (
           
-          {/* PANEL DE GAUCHE : OUTILS ET LISTES */}
-          <div className="space-y-6 lg:col-span-1">
+          /* ========================================================================= */
+          /* ⚡ VUE B : CENTRE DE CONTROLE (TOUS LES COMPTES, CHANGEMENT ROLES & BAN) */
+          /* ========================================================================= */
+          <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden p-6 space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight text-slate-950">Registre Global des Comptes</h2>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">Modification des privilèges (Admin, Client, Livreur) et maintenance de la base de données</p>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-100 rounded-xl">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50/80 border-b border-slate-100 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                    <th className="p-4 font-semibold">Opérateur / Prénom</th>
+                    <th className="p-4 font-semibold">Adresse Électronique</th>
+                    <th className="p-4 font-semibold">Privilège Système</th>
+                    <th className="p-4 font-semibold text-right">Actions de Sécurité</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                  {allDbUsers.map((user) => (
+                    <tr key={user.id} className="hover:bg-slate-50/40 transition-colors">
+                      <td className="p-4 font-semibold text-slate-950">{user.firstName}</td>
+                      <td className="p-4 font-mono text-slate-500 text-[11px]">{user.email}</td>
+                      <td className="p-4">
+                        
+                        {/* ⚡ SELECTEUR DE RÔLE DÉROULANT : ADMIN, CLIENT, LIVREUR */}
+                        <select 
+                          value={user.role || 'LIVREUR'} 
+                          onChange={(e) => handleChangeRoleInControlCenter(user.id, e.target.value)}
+                          className="bg-slate-50 border border-slate-200 text-slate-800 rounded-lg p-1.5 text-xs font-semibold focus:outline-none focus:border-slate-400 transition"
+                        >
+                          <option value="ADMIN">ADMIN</option>
+                          <option value="LIVREUR">LIVREUR</option>
+                          <option value="CLIENT">CLIENT</option>
+                        </select>
+
+                      </td>
+                      <td className="p-4 text-right">
+                        <button 
+                          onClick={() => handleDeleteUserInControlCenter(user.id, user.firstName)}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 text-[11px] font-semibold rounded-xl transition cursor-pointer"
+                        >
+                          Supprimer le compte
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        ) : (
+
+          /* ========================================================================= */
+          /* ⚡ VUE A : INDEX MAP OPERATIONNEL (TON DASHBOARD ORIGINAL SANS ALTERATION) */
+          /* ========================================================================= */
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
             
-            {/* COMPOSANT INTERVENANT CIBLÉ */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-sm relative overflow-hidden group">
-              <div className="absolute top-0 left-0 w-1 h-full bg-slate-950" />
-              <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Opérateur actif</h3>
-              <p className="text-base font-semibold text-slate-900 mt-1 truncate tracking-tight">
-                {activeUser ? activeUser.replace('intervenant_', '@') : "En attente de connexion..."}
-              </p>
-              <div className={`mt-1.5 text-xs font-medium tracking-tight ${isOnline ? 'text-emerald-600' : 'text-slate-400'}`}>
-                {lastSeen}
-              </div>
-            </div>
-
-            {/* FORMULAIRE DE CRÉATION DE MISSION */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-sm space-y-4">
-              <div className="border-b border-slate-100 pb-3">
-                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Assigner un ordre</h3>
-              </div>
-              <form onSubmit={handleSubmitMission} className="space-y-4 text-xs">
-                
-                <div>
-                  <label className="block text-slate-500 font-medium mb-1.5">Intitulé de la course</label>
-                  <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Hub expédition colis #902" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 font-medium focus:outline-none focus:border-slate-400 transition" />
-                </div>
-                
-                {/* Départ */}
-                <div className="relative">
-                  <label className="block text-slate-500 font-medium mb-1.5">Adresse de chargement</label>
-                  <input type="text" value={pickupInput} onChange={(e) => { setPickupCoords(null); setPickupInput(e.target.value); }} placeholder="Rechercher le départ..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${pickupCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
-                  {pickupSuggestions.length > 0 && (
-                    <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
-                      {pickupSuggestions.map((s, idx) => (
-                        <li key={idx} onClick={() => {
-                          setIsPickupSelected(true);
-                          setPickupInput(s.display_name);
-                          setPickupCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
-                          setPickupSuggestions([]);
-                        }} className="p-2.5 text-[11px] hover:bg-slate-50 cursor-pointer text-slate-600 truncate transition-colors">{s.display_name}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                {/* Arrivée */}
-                <div className="relative">
-                  <label className="block text-slate-500 font-medium mb-1.5">Destination de livraison</label>
-                  <input type="text" value={deliveryInput} onChange={(e) => { setDeliveryCoords(null); setDeliveryInput(e.target.value); }} placeholder="Rechercher l'arrivée..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${deliveryCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
-                  {deliverySuggestions.length > 0 && (
-                    <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
-                      {deliverySuggestions.map((s, idx) => (
-                        <li key={idx} onClick={() => {
-                          setIsDeliverySelected(true);
-                          setDeliveryInput(s.display_name);
-                          setDeliveryCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
-                          setDeliverySuggestions([]);
-                        }} className="p-2.5 text-[11px] hover:bg-slate-50 cursor-pointer text-slate-600 truncate transition-colors">{s.display_name}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-slate-500 font-medium mb-1.5">Honoraires de course (€)</label>
-                  <input type="text" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-900 font-mono font-bold focus:outline-none" />
-                </div>
-
-                <button type="submit" disabled={loadingGeocode || !pickupCoords || !deliveryCoords || !activeUser} className="w-full bg-slate-950 text-white font-medium py-2.5 rounded-xl hover:bg-slate-800 transition shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 border border-transparent tracking-wide mt-2">
-                  {activeUser ? 'Émettre la mission' : 'En attente de flotte'}
-                </button>
-              </form>
-            </div>
-
-            {/* ONGLET CONSOLE DE LOGS / COURSES */}
-            <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
+            {/* PANEL DE GAUCHE : OUTILS ET LISTES */}
+            <div className="space-y-6 lg:col-span-1">
               
-              {/* Onglets */}
-              <div className="flex border-b border-slate-100 text-[11px] font-bold bg-slate-50/80 p-1">
-                <button 
-                  onClick={() => setActiveTab('ACTIVE')}
-                  className={`flex-1 py-2 text-center rounded-xl transition-all duration-200 ${activeTab === 'ACTIVE' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  Opérations ({activeMissions.length})
-                </button>
-                <button 
-                  onClick={() => setActiveTab('HISTORY')}
-                  className={`flex-1 py-2 text-center rounded-xl transition-all duration-200 ${activeTab === 'HISTORY' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                >
-                  Historique ({historyMissions.length})
-                </button>
+              {/* ⚡ COMPOSANT INTERVENANT CIBLÉ CONVERTI EN MENU DÉROULANT CLIQUABLE */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-sm relative overflow-hidden group">
+                <div className="absolute top-0 left-0 w-1 h-full bg-slate-950" />
+                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Opérateur ciblé</h3>
+                
+                <div className="mt-2 relative">
+                  {connectedDrivers.length === 0 ? (
+                    <p className="text-xs font-semibold text-slate-400 italic">Aucun livreur en ligne...</p>
+                  ) : (
+                    // ⚡ LE SELECTEUR DÉROULANT : Permet d'isoler un utilisateur connecté en un clic
+                    <select
+                      value={activeUser || ''}
+                      onChange={(e) => handleSelectConnectedDriver(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl p-2 text-xs font-semibold focus:outline-none focus:border-slate-400 cursor-pointer"
+                    >
+                      <option value="" disabled>-- Choisir un livreur connecté ({connectedDrivers.length}) --</option>
+                      {connectedDrivers.map((driver) => (
+                        <option key={driver.socketId} value={driver.socketId}>
+                          @{driver.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div className={`mt-2 text-xs font-medium tracking-tight ${isOnline ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  {lastSeen}
+                </div>
               </div>
 
-              <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
-                {/* COURSES EN COURS */}
-                {activeTab === 'ACTIVE' && (
-                  activeMissions.length === 0 ? (
-                    <div className="px-5 py-8 text-center"><p className="text-xs text-slate-400 font-medium">Aucun vecteur en transit.</p></div>
-                  ) : (
-                    activeMissions.map((m) => (
-                      <div key={m.id} className="px-4 py-3.5 hover:bg-slate-50/60 transition-colors">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold text-slate-950 truncate tracking-tight">{m.title}</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5 font-mono">{m.price} €</p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`px-2 py-0.5 rounded-md font-bold text-[9px] tracking-wider uppercase border ${
-                              m.status === 'ACCEPTED' ? 'bg-slate-950 text-white border-transparent' :
-                              m.status === 'REFUSED'  ? 'bg-rose-50 text-rose-700 border-rose-100' :
-                                                        'bg-amber-50 text-amber-700 border-amber-100'
-                            }`}>
-                              {m.status === 'PENDING'   && ' Attente'}
-                              {m.status === 'ACCEPTED'  && ' Transit'}
-                              {m.status === 'REFUSED'   && ' Refusé'}
-                            </span>
-                            {m.status === 'PENDING' && (
-                              <button onClick={() => handleDeleteMission(m.id)} className="p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 transition border border-transparent hover:border-rose-100 cursor-pointer" type="button">
-                                <svg xmlns="http://www.w3.org/2000/xl" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        {m.validationCode && (
-                          <div className="mt-2.5 flex items-center justify-between bg-slate-50 border border-slate-200/60 rounded-xl px-3 py-1.5">
-                            <span className="text-slate-400 text-[9px] font-bold uppercase tracking-widest">Token Client</span>
-                            <span className="text-slate-950 font-mono font-bold text-xs tracking-wider">{m.validationCode}</span>
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  )
-                )}
-
-                {/* HISTORIQUE */}
-                {activeTab === 'HISTORY' && (
-                  <div className="divide-y divide-slate-100">
-                    <div className="bg-slate-950 px-4 py-3 flex justify-between items-center text-[11px] text-white">
-                      <span className="font-medium opacity-70">Volume total généré</span>
-                      <span className="font-mono font-bold text-xs text-emerald-400">{totalEarnings} €</span>
-                    </div>
-
-                    {historyMissions.length === 0 ? (
-                      <div className="px-5 py-8 text-center"><p className="text-xs text-slate-400 font-medium">L'archive est vierge.</p></div>
-                    ) : (
-                      historyMissions.map((m) => (
-                        <div key={m.id} className="px-4 py-3.5 bg-white hover:bg-slate-50/50 transition-colors">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-semibold text-slate-800 truncate tracking-tight">{m.title}</p>
-                              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Acheminement validé</p>
-                            </div>
-                            <div className="shrink-0">
-                              <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100/60 rounded-lg font-mono">+{m.price} €</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))
+              {/* FORMULAIRE DE CRÉATION DE MISSION */}
+              <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-sm space-y-4">
+                <div className="border-b border-slate-100 pb-3">
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Assigner un ordre</h3>
+                </div>
+                <form onSubmit={handleSubmitMission} className="space-y-4 text-xs">
+                  
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1.5">Intitulé de la course</label>
+                    <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Hub expédition colis #902" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 font-medium focus:outline-none focus:border-slate-400 transition" />
+                  </div>
+                  
+                  {/* Départ */}
+                  <div className="relative">
+                    <label className="block text-slate-500 font-medium mb-1.5">Adresse de chargement</label>
+                    <input type="text" value={pickupInput} onChange={(e) => { setPickupCoords(null); setPickupInput(e.target.value); }} placeholder="Rechercher le départ..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${pickupCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
+                    {pickupSuggestions.length > 0 && (
+                      <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
+                        {pickupSuggestions.map((s, idx) => (
+                          <li key={idx} onClick={() => {
+                            setIsPickupSelected(true);
+                            setPickupInput(s.display_name);
+                            setPickupCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
+                            setPickupSuggestions([]);
+                          }} className="p-2.5 text-[11px] hover:bg-slate-50 cursor-pointer text-slate-600 truncate transition-colors">{s.display_name}</li>
+                        ))}
+                      </ul>
                     )}
                   </div>
-                )}
+
+                  {/* Arrivée */}
+                  <div className="relative">
+                    <label className="block text-slate-500 font-medium mb-1.5">Destination de livraison</label>
+                    <input type="text" value={deliveryInput} onChange={(e) => { setDeliveryCoords(null); setDeliveryInput(e.target.value); }} placeholder="Rechercher l'arrivée..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${deliveryCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
+                    {deliverySuggestions.length > 0 && (
+                      <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
+                        {deliverySuggestions.map((s, idx) => (
+                          <li key={idx} onClick={() => {
+                            setIsDeliverySelected(true);
+                            setDeliveryInput(s.display_name);
+                            setDeliveryCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
+                            setDeliverySuggestions([]);
+                          }} className="p-2.5 text-[11px] hover:bg-slate-50 cursor-pointer text-slate-600 truncate transition-colors">{s.display_name}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1.5">Honoraires de course (€)</label>
+                    <input type="text" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-900 font-mono font-bold focus:outline-none" />
+                  </div>
+
+                  <button type="submit" disabled={loadingGeocode || !pickupCoords || !deliveryCoords || !activeUser} className="w-full bg-slate-950 text-white font-medium py-2.5 rounded-xl hover:bg-slate-800 transition shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 border border-transparent tracking-wide mt-2">
+                    {activeUser ? 'Émettre la mission' : 'En attente de flotte'}
+                  </button>
+                </form>
+              </div>
+
+              {/* ONGLET CONSOLE DE LOGS / COURSES */}
+              <div className="bg-white rounded-2xl border border-slate-200/70 shadow-sm overflow-hidden">
+                
+                {/* Onglets */}
+                <div className="flex border-b border-slate-100 text-[11px] font-bold bg-slate-50/80 p-1">
+                  <button 
+                    onClick={() => setActiveTab('ACTIVE')}
+                    className={`flex-1 py-2 text-center rounded-xl transition-all duration-200 ${activeTab === 'ACTIVE' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                    Opérations ({activeMissions.length})
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('HISTORY')}
+                    className={`flex-1 py-2 text-center rounded-xl transition-all duration-200 ${activeTab === 'HISTORY' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                  >
+                    Historique ({historyMissions.length})
+                  </button>
+                </div>
+
+                <div className="max-h-[300px] overflow-y-auto divide-y divide-slate-100">
+                  {/* COURSES EN COURS */}
+                  {activeTab === 'ACTIVE' && (
+                    activeMissions.length === 0 ? (
+                      <div className="px-5 py-8 text-center"><p className="text-xs text-slate-400 font-medium">Aucun vecteur en transit.</p></div>
+                    ) : (
+                      activeMissions.map((m) => (
+                        <div key={m.id} className="px-4 py-3.5 hover:bg-slate-50/60 transition-colors">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-semibold text-slate-950 truncate tracking-tight">{m.title}</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5 font-mono">{m.price} €</p>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={`px-2 py-0.5 rounded-md font-bold text-[9px] tracking-wider uppercase border ${
+                                m.status === 'ACCEPTED' ? 'bg-slate-950 text-white border-transparent' :
+                                m.status === 'REFUSED'  ? 'bg-rose-50 text-rose-700 border-rose-100' :
+                                                          'bg-amber-50 text-amber-700 border-amber-100'
+                              }`}>
+                                {m.status === 'PENDING'   && ' Attente'}
+                                {m.status === 'ACCEPTED'  && ' Transit'}
+                                {m.status === 'REFUSED'   && ' Refusé'}
+                              </span>
+                              {m.status === 'PENDING' && (
+                                <button onClick={() => handleDeleteMission(m.id)} className="p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 transition border border-transparent hover:border-rose-100 cursor-pointer" type="button">
+                                  <svg xmlns="http://www.w3.org/2000/xl" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {m.validationCode && (
+                            <div className="mt-2.5 flex items-center justify-between bg-slate-50 border border-slate-200/60 rounded-xl px-3 py-1.5">
+                              <span className="text-slate-400 text-[9px] font-bold uppercase tracking-widest">Token Client</span>
+                              <span className="text-slate-950 font-mono font-bold text-xs tracking-wider">{m.validationCode}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )
+                  )}
+
+                  {/* HISTORIQUE */}
+                  {activeTab === 'HISTORY' && (
+                    <div className="divide-y divide-slate-100">
+                      <div className="bg-slate-950 px-4 py-3 flex justify-between items-center text-[11px] text-white">
+                        <span className="font-medium opacity-70">Volume total généré</span>
+                        <span className="font-mono font-bold text-xs text-emerald-400">{totalEarnings} €</span>
+                      </div>
+
+                      {historyMissions.length === 0 ? (
+                        <div className="px-5 py-8 text-center"><p className="text-xs text-slate-400 font-medium">L'archive est vierge.</p></div>
+                      ) : (
+                        historyMissions.map((m) => (
+                          <div key={m.id} className="px-4 py-3.5 bg-white hover:bg-slate-50/50 transition-colors">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-slate-800 truncate tracking-tight">{m.title}</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5 font-medium">Acheminement validé</p>
+                              </div>
+                              <div className="shrink-0">
+                                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100/60 rounded-lg font-mono">+{m.price} €</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* PANEL DE DROITE : BLOC CARTE GRAND FORMAT */}
-          <div className="lg:col-span-3 rounded-2xl overflow-hidden border border-slate-200/70 shadow-md bg-white p-2">
-            <MapWithNoSSR />
+            {/* PANEL DE DROITE : BLOC CARTE GRAND FORMAT */}
+            <div className="lg:col-span-3 rounded-2xl overflow-hidden border border-slate-200/70 shadow-md bg-white p-2">
+              <MapWithNoSSR />
+            </div>
+            
           </div>
-          
-        </div>
+        )}
       </div>
     </main>
   );

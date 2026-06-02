@@ -246,4 +246,24 @@ export class AppController {
 
     return { success: true };
   }
+
+  // Récupérer tous les comptes pour la liste d'administration
+  @Get('auth/users')
+  async getAllUsers() {
+    return this.userRepository.find({ order: { firstName: 'ASC' } });
+  }
+
+  // Changer le rôle d'un utilisateur
+  @Put('auth/users/:id/role')
+  async changeUserRole(@Param('id') id: number, @Body('role') role: string) {
+    await this.userRepository.update(id, { role: role as any });
+    return { success: true };
+  }
+
+  // Supprimer définitivement un utilisateur
+  @Delete('auth/users/:id')
+  async deleteUser(@Param('id') id: number) {
+    await this.userRepository.delete(id);
+    return { success: true };
+  }
 }

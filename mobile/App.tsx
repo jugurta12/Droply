@@ -40,13 +40,21 @@ export default function App() {
   const [editFirstName, setEditFirstName] = useState('');
   const [editImage, setEditImage] = useState<string | null>(null);
 
-  // ⚡ AUTO-CONNEXION : Vérifie au tout premier démarrage si une session existe
+  // ⚡ AUTO-CONNEXION : Vérifie au tout premier démarrage si une session existe et filtre le rôle
   useEffect(() => {
     const checkSavedSession = async () => {
       try {
         const savedUserJson = await AsyncStorage.getItem('@droply_user_session');
         if (savedUserJson !== null) {
           const user = JSON.parse(savedUserJson);
+          
+          // 🛡️ Sécurité : Si la session enregistrée est un ADMIN, on le déconnecte du mobile
+          if (user.role === 'ADMIN') {
+            await AsyncStorage.removeItem('@droply_user_session');
+            setAppLoading(false);
+            return;
+          }
+
           console.log("🔒 Session trouvée en mémoire pour :", user.firstName);
           startLivreurSession(user);
         } else {
@@ -95,7 +103,6 @@ export default function App() {
       profileImage: editImage,
     };
     setCurrentUser(updatedUser);
-    // On met aussi à jour la mémoire persistante locale
     await AsyncStorage.setItem('@droply_user_session', JSON.stringify(updatedUser));
     alert("Profil mis à jour ✅");
   };
@@ -153,7 +160,7 @@ export default function App() {
 
   // ⚡ FONCTION DE CALCUL HAVERSINE SUR LE MOBILE
   const calculateDistanceLocally = (userLat: number, userLng: number, targetLat: number, targetLng: number) => {
-    const R = 6371; // Rayon de la Terre en km
+    const R = 6371; 
     const dLat = (targetLat - userLat) * (Math.PI / 180);
     const dLng = (targetLng - userLng) * (Math.PI / 180);
     const a =
@@ -177,7 +184,6 @@ export default function App() {
     newSocket.on('connect', () => setConnected(true));
     newSocket.on('disconnect', () => setConnected(false));
 
-    // ⚡ INTERCEPTION DE L'ALERTE EN DIRECT AVEC RE-CALCUL GÉOSPATIAL IMMÉDIAT
     newSocket.on('new_mission_alert', (mission: any) => {
       if (mission.status === 'PENDING') {
         let updatedMission = { ...mission };
@@ -217,7 +223,6 @@ export default function App() {
       }
     });
 
-    // CORRECTIF PERSISTANCE : Récupération intelligente au chargement
     fetch(`${BACKEND_URL}/missions/user/${userId}`)
       .then(res => res.json())
       .then(data => {
@@ -251,7 +256,7 @@ export default function App() {
     })();
 
     setScreen('HOME');
-    setAppLoading(false); // Arrête le loader d'initialisation
+    setAppLoading(false); 
   };
 
   // Soumettre l'Inscription
@@ -268,7 +273,6 @@ export default function App() {
     if (data.error) return alert(data.error);
     if (data.success) {
       alert("Compte créé avec succès !");
-      // ⚡ SAUVEGARDE EN MÉMOIRE DE LA SESSION REUSSIE
       await AsyncStorage.setItem('@droply_user_session', JSON.stringify(data.user));
       startLivreurSession(data.user);
     }
@@ -286,8 +290,13 @@ export default function App() {
     const data = await res.json();
 
     if (data.error) return alert(data.error);
-    if (data.success) {
-      // ⚡ SAUVEGARDE EN MÉMOIRE DE LA SESSION REUSSIE
+    
+    // 🛡️ SÉCURITÉ : Filtrage du rôle administrateur lors de la connexion manuelle
+    if (data.success && data.user) {
+      if (data.user.role === 'ADMIN') {
+        return alert("Accès refusé. Les comptes Administrateurs doivent se connecter sur l'interface Web Droply.");
+      }
+      
       await AsyncStorage.setItem('@droply_user_session', JSON.stringify(data.user));
       startLivreurSession(data.user);
     }
