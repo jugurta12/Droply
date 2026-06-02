@@ -34,6 +34,10 @@ export default function Home() {
   const [deliveryCoords, setDeliveryCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [deliverySuggestions, setDeliverySuggestions] = useState<any[]>([]);
 
+  // ⚡ NOUVEAUX ÉTATS DRAPEAUX : Évitent de déclencher l'API lors d'une sélection automatique
+  const [isPickupSelected, setIsPickupSelected] = useState(false);
+  const [isDeliverySelected, setIsDeliverySelected] = useState(false);
+
   const loadLastKnownLocation = (id: string) => {
     fetch(`http://localhost:3000/locations/last/${id}`)
       .then((res) => res.json())
@@ -108,12 +112,21 @@ export default function Home() {
     }
   };
 
+  // ⚡ CORRECTIF AUTOCLOSE : On bloque la recherche si l'adresse vient d'être cliquée
   useEffect(() => {
+    if (isPickupSelected) {
+      setIsPickupSelected(false);
+      return;
+    }
     const timer = setTimeout(() => fetchSuggestions(pickupInput, setPickupSuggestions), 400);
     return () => clearTimeout(timer);
   }, [pickupInput]);
 
   useEffect(() => {
+    if (isDeliverySelected) {
+      setIsDeliverySelected(false);
+      return;
+    }
     const timer = setTimeout(() => fetchSuggestions(deliveryInput, setDeliverySuggestions), 400);
     return () => clearTimeout(timer);
   }, [deliveryInput]);
@@ -221,11 +234,12 @@ export default function Home() {
                 {/* Départ */}
                 <div className="relative">
                   <label className="block text-slate-500 font-medium mb-1.5">Adresse de chargement</label>
-                  <input type="text" value={pickupInput} onChange={(e) => setPickupInput(e.target.value)} placeholder="Rechercher le départ..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${pickupCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
+                  <input type="text" value={pickupInput} onChange={(e) => { setPickupCoords(null); setPickupInput(e.target.value); }} placeholder="Rechercher le départ..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${pickupCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
                   {pickupSuggestions.length > 0 && (
                     <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
                       {pickupSuggestions.map((s, idx) => (
                         <li key={idx} onClick={() => {
+                          setIsPickupSelected(true); // ⚡ On lève le drapeau
                           setPickupInput(s.display_name);
                           setPickupCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
                           setPickupSuggestions([]);
@@ -238,11 +252,12 @@ export default function Home() {
                 {/* Arrivée */}
                 <div className="relative">
                   <label className="block text-slate-500 font-medium mb-1.5">Destination de livraison</label>
-                  <input type="text" value={deliveryInput} onChange={(e) => setDeliveryInput(e.target.value)} placeholder="Rechercher l'arrivée..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${deliveryCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
+                  <input type="text" value={deliveryInput} onChange={(e) => { setDeliveryCoords(null); setDeliveryInput(e.target.value); }} placeholder="Rechercher l'arrivée..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${deliveryCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
                   {deliverySuggestions.length > 0 && (
                     <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
                       {deliverySuggestions.map((s, idx) => (
                         <li key={idx} onClick={() => {
+                          setIsDeliverySelected(true); // ⚡ On lève le drapeau
                           setDeliveryInput(s.display_name);
                           setDeliveryCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
                           setDeliverySuggestions([]);
@@ -307,7 +322,7 @@ export default function Home() {
                             </span>
                             {m.status === 'PENDING' && (
                               <button onClick={() => handleDeleteMission(m.id)} className="p-1 text-slate-400 hover:text-rose-500 rounded-lg hover:bg-rose-50 transition border border-transparent hover:border-rose-100 cursor-pointer" type="button">
-                                <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                <svg xmlns="http://www.w3.org/2000/xl" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-4v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                               </button>
                             )}
                           </div>

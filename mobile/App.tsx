@@ -106,6 +106,19 @@ export default function App() {
     Linking.openURL(url).catch((err) => console.error("Erreur GPS Livraison :", err));
   };
 
+  // ⚡ FONCTION DE CALCUL HAVERSINE SUR LE MOBILE
+  const calculateDistanceLocally = (userLat: number, userLng: number, targetLat: number, targetLng: number) => {
+    const R = 6371; // Rayon de la Terre en km
+    const dLat = (targetLat - userLat) * (Math.PI / 180);
+    const dLng = (targetLng - userLng) * (Math.PI / 180);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(userLat * (Math.PI / 180)) * Math.cos(targetLat * (Math.PI / 180)) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return (R * c).toFixed(1);
+  };
+
   // Initialiser les WebSockets et le GPS après Auth réussie
   const startLivreurSession = (user: any) => {
     setCurrentUser(user);
@@ -119,10 +132,27 @@ export default function App() {
     newSocket.on('connect', () => setConnected(true));
     newSocket.on('disconnect', () => setConnected(false));
 
+    // ⚡ INTERCEPTION DE L'ALERTE EN DIRECT AVEC RE-CALCUL GÉOSPATIAL IMMÉDIAT
     newSocket.on('new_mission_alert', (mission: any) => {
       if (mission.status === 'PENDING') {
-        setAvailableMissions(prev => [mission, ...prev]);
-        setIncomingMission(mission);
+        let updatedMission = { ...mission };
+        
+        // Si le mobile a déjà un point GPS actif, on injecte la distance calculée en temps réel
+        // Cela évite d'attendre un rechargement de l'application
+        setLocation((currentLocation) => {
+          if (currentLocation) {
+            updatedMission.distanceToPickup = calculateDistanceLocally(
+              currentLocation.coords.latitude,
+              currentLocation.coords.longitude,
+              mission.pickupLatitude,
+              mission.pickupLongitude
+            );
+          }
+          return currentLocation;
+        });
+
+        setAvailableMissions(prev => [updatedMission, ...prev]);
+        setIncomingMission(updatedMission);
         setModalVisible(true);
       }
     });
@@ -144,7 +174,7 @@ export default function App() {
       }
     });
 
-    // 🚀 CORRECTIF PERSISTANCE : Récupération intelligente au chargement
+    // CORRECTIF PERSISTANCE : Récupération intelligente au chargement
     fetch(`${BACKEND_URL}/missions/user/${userId}`)
       .then(res => res.json())
       .then(data => {
