@@ -373,7 +373,7 @@ export default function App() {
         {activeTab === 'SETTINGS' ? (
           /* ——— PAGE PARAMÈTRES ——— */
           <ScrollView contentContainerStyle={styles.settingsContainer}>
-            <Text style={styles.settingsTitle}>⚙️ Mon Profil</Text>
+            <Text style={styles.settingsTitle}> Mon Profil</Text>
 
             {/* Avatar modifiable */}
             <TouchableOpacity style={styles.avatarPicker} onPress={pickImageSettings}>
@@ -381,7 +381,7 @@ export default function App() {
                 <Image source={{ uri: editImage }} style={styles.avatarImage} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarPlaceholderText}>📸 Changer la photo</Text>
+                  <Text style={styles.avatarPlaceholderText}> Changer la photo</Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -408,7 +408,7 @@ export default function App() {
             </View>
 
             <TouchableOpacity style={styles.submitAuthButton} onPress={saveProfileChanges}>
-              <Text style={styles.buttonText}>💾 Sauvegarder les modifications</Text>
+              <Text style={styles.buttonText}> Sauvegarder les modifications</Text>
             </TouchableOpacity>
           </ScrollView>
 
@@ -424,7 +424,7 @@ export default function App() {
                   <Text style={styles.missionDesc}>{activeMission.description}</Text>
 
                   <View style={{ marginTop: 15, borderTopWidth: 1, borderColor: '#3A3A3C', paddingTop: 15 }}>
-                    <Text style={{ color: '#FF9500', fontWeight: 'bold', fontSize: 11, marginBottom: 5 }}>🔒 CODE DE VALIDATION EXIGÉ (3 CHIFFRES)</Text>
+                    <Text style={{ color: '#FF9500', fontWeight: 'bold', fontSize: 11, marginBottom: 5 }}> CODE DE VALIDATION EXIGÉ (3 CHIFFRES)</Text>
                     <TextInput
                       style={styles.codeInputField}
                       placeholder="---"
@@ -441,10 +441,10 @@ export default function App() {
 
                   <View style={{ marginVertical: 10 }}>
                     <TouchableOpacity style={[styles.navigationGpsButton, { backgroundColor: '#FF9500' }]} onPress={openGPSPickup}>
-                      <Text style={styles.buttonText}>📦 Étape 1 : Aller récupérer le colis</Text>
+                      <Text style={styles.buttonText}> Étape 1 : Aller récupérer le colis</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.navigationGpsButton, { backgroundColor: '#007AFF', marginTop: 10 }]} onPress={openGPSDelivery}>
-                      <Text style={styles.buttonText}>🏁 Étape 2 : Aller livrer le client</Text>
+                      <Text style={styles.buttonText}> Étape 2 : Aller livrer le client</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
