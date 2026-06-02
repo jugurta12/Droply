@@ -12,7 +12,7 @@ export class UserEntity {
   email!: string;
 
   @Column()
-  password!: string; // Dans un vrai projet de prod, on mettrait du bcrypt ici
+  password!: string; // Dans un vrai projet de prod, bcrypt ici
 
   @Column({ nullable: true })
   profileImage!: string; // URL ou base64 de la photo

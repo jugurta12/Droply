@@ -14,6 +14,14 @@ const MapWithNoSSR = dynamic(() => import('./components/Map'), {
 });
 
 export default function Home() {
+  // ⚡ ÉTATS D'AUTHENTIFICATION WEB
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
+
+  // États du Dashboard
   const [activeUser, setActiveUser] = useState<string | null>(null);
   const [lastSeen, setLastSeen] = useState<string>("En attente d'un signal livreur...");
   const [isOnline, setIsOnline] = useState<boolean>(false);
@@ -23,7 +31,6 @@ export default function Home() {
   const [price, setPrice] = useState('15.00');
   const [loadingGeocode, setLoadingGeocode] = useState(false);
 
-  // ⚡ ÉTAT POUR L'ONGLET ACTIF
   const [activeTab, setActiveTab] = useState<'ACTIVE' | 'HISTORY'>('ACTIVE');
 
   const [pickupInput, setPickupInput] = useState('');
@@ -34,9 +41,16 @@ export default function Home() {
   const [deliveryCoords, setDeliveryCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [deliverySuggestions, setDeliverySuggestions] = useState<any[]>([]);
 
-  // ⚡ NOUVEAUX ÉTATS DRAPEAUX : Évitent de déclencher l'API lors d'une sélection automatique
   const [isPickupSelected, setIsPickupSelected] = useState(false);
   const [isDeliverySelected, setIsDeliverySelected] = useState(false);
+
+  // ⚡ PERSISTANCE SESSION WEB : Vérifie si l'admin était déjà connecté
+  useEffect(() => {
+    const savedAuth = localStorage.getItem('droply_admin_auth');
+    if (savedAuth === 'true') {
+      setIsAdminAuthenticated(true);
+    }
+  }, []);
 
   const loadLastKnownLocation = (id: string) => {
     fetch(`http://localhost:3000/locations/last/${id}`)
@@ -62,12 +76,14 @@ export default function Home() {
   };
 
   useEffect(() => {
-    if (activeUser) {
+    if (isAdminAuthenticated && activeUser) {
       loadUserMissions(activeUser);
     }
-  }, [activeUser]);
+  }, [activeUser, isAdminAuthenticated]);
 
   useEffect(() => {
+    if (!isAdminAuthenticated) return;
+
     const { io } = require('socket.io-client');
     const socket = io('http://localhost:3000');
 
@@ -96,7 +112,7 @@ export default function Home() {
     });
 
     return () => socket.disconnect();
-  }, [activeUser]);
+  }, [activeUser, isAdminAuthenticated]);
 
   const fetchSuggestions = async (text: string, setSuggestions: (data: any[]) => void) => {
     if (text.length < 3) {
@@ -112,24 +128,71 @@ export default function Home() {
     }
   };
 
-  // ⚡ CORRECTIF AUTOCLOSE : On bloque la recherche si l'adresse vient d'être cliquée
   useEffect(() => {
+    if (!isAdminAuthenticated) return;
     if (isPickupSelected) {
       setIsPickupSelected(false);
       return;
     }
     const timer = setTimeout(() => fetchSuggestions(pickupInput, setPickupSuggestions), 400);
     return () => clearTimeout(timer);
-  }, [pickupInput]);
+  }, [pickupInput, isPickupSelected, isAdminAuthenticated]);
 
   useEffect(() => {
+    if (!isAdminAuthenticated) return;
     if (isDeliverySelected) {
       setIsDeliverySelected(false);
       return;
     }
     const timer = setTimeout(() => fetchSuggestions(deliveryInput, setDeliverySuggestions), 400);
     return () => clearTimeout(timer);
-  }, [deliveryInput]);
+  }, [deliveryInput, isDeliverySelected, isAdminAuthenticated]);
+
+  // ⚡ SOUCHET AUTHENTIFICATION WEB + FILTRAGE RÔLE
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginEmail || !loginPassword) return setAuthError("Veuillez remplir tous les champs.");
+    
+    setAuthError(null);
+    setAuthLoading(true);
+
+    try {
+      const response = await fetch('http://localhost:3000/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+      });
+      const data = await response.json();
+
+      setAuthLoading(false);
+
+      if (data.error) {
+        return setAuthError(data.error);
+      }
+
+      // Vérification chirurgicale du rôle renvoyé par le backend
+      if (data.success && data.user) {
+        if (data.user.role === 'ADMIN') {
+          setIsAdminAuthenticated(true);
+          localStorage.setItem('droply_admin_auth', 'true');
+        } else {
+          setAuthError("Accès refusé. Cette console est strictement réservée aux administrateurs.");
+        }
+      }
+    } catch (err) {
+      setAuthLoading(false);
+      setAuthError("Erreur de connexion au serveur d'authentification.");
+    }
+  };
+
+  const handleAdminLogout = () => {
+    setIsAdminAuthenticated(false);
+    localStorage.removeItem('droply_admin_auth');
+    setActiveUser(null);
+    setMissions([]);
+    setLoginEmail('');
+    setLoginPassword('');
+  };
 
   const handleSubmitMission = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,6 +246,59 @@ export default function Home() {
   const historyMissions = missions.filter(m => m.status === 'DELIVERED');
   const totalEarnings = historyMissions.reduce((sum, m) => sum + parseFloat(m.price), 0).toFixed(2);
 
+  // ⚡ RENDU ÉCRAN 1 : FORMULAIRE DE CONNEXION SÉCURISÉ (SI PAS AUTHENTIFIÉ)
+  if (!isAdminAuthenticated) {
+    return (
+      <main className="min-h-screen bg-[#D9D9D9] flex items-center justify-center p-6 font-sans antialiased text-white">
+        <div className="w-full max-w-md bg-[#F8FAFC] border border-slate-700/60 p-8 rounded-2xl shadow-xl space-y-6">
+          <div className="text-center space-y-2">
+            <h1 className="text-2xl font-bold tracking-tight text-black">Droply Portal</h1>
+            <p className="text-xs text-slate-900 font-medium">Console d'accès d'administration globale</p>
+          </div>
+
+          {authError && (
+            <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs p-3 rounded-xl font-medium tracking-tight leading-relaxed">
+               {authError}
+            </div>
+          )}
+
+          <form onSubmit={handleAdminLogin} className="space-y-4 text-xs">
+            <div>
+              <label className="block text-slate-400 font-medium mb-1.5 uppercase tracking-wider text-[10px]">Identifiant de sécurité</label>
+              <input 
+                type="email" 
+                value={loginEmail} 
+                onChange={(e) => setLoginEmail(e.target.value)} 
+                placeholder="admin@droply.com" 
+                className="w-full px-3 py-2.5 bg-slate-000 border border-slate-700 rounded-xl text-black focus:outline-none focus:border-slate-500 transition font-medium" 
+              />
+            </div>
+
+            <div>
+              <label className="block text-slate-400 font-medium mb-1.5 uppercase tracking-wider text-[10px]">Clé de passe</label>
+              <input 
+                type="password" 
+                value={loginPassword} 
+                onChange={(e) => setLoginPassword(e.target.value)} 
+                placeholder="••••••••" 
+                className="w-full px-3 py-2.5 bg-slate-000 border border-slate-700 rounded-xl text-black focus:outline-none focus:border-slate-500 transition font-mono text-sm" 
+              />
+            </div>
+
+            <button 
+              type="submit" 
+              disabled={authLoading}
+              className="w-full bg-white text-slate-950 font-semibold py-3 rounded-xl hover:bg-slate-200 transition shadow-sm tracking-wide mt-4 flex items-center justify-center"
+            >
+              {authLoading ? 'Vérification des droits...' : 'Ouvrir la session sécurisée'}
+            </button>
+          </form>
+        </div>
+      </main>
+    );
+  }
+
+  // ⚡ RENDU ÉCRAN 2 : LE DASHBOARD ADMINISTRATEUR (ACCESSIBLE UNIQUEMENT SI ROLE === 'ADMIN')
   return (
     <main className="min-h-screen bg-[#F8FAFC] p-6 lg:p-10 font-sans antialiased text-slate-900">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -193,11 +309,21 @@ export default function Home() {
             <h1 className="text-2xl font-semibold tracking-tight text-slate-950">Droply Control Center</h1>
             <p className="text-xs text-slate-500 mt-1 font-medium">Console de supervision de flotte en temps réel</p>
           </div>
-          <div className={`self-start sm:self-center flex items-center space-x-2 px-3 py-1.5 rounded-full border text-[11px] font-medium tracking-wide uppercase shadow-sm transition-all duration-300 ${
-            isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-            <span>{isOnline ? 'Live stream actif' : 'Mode synchrone historique'}</span>
+          <div className="flex items-center space-x-3 self-start sm:self-center">
+            <div className={`flex items-center space-x-2 px-3 py-1.5 rounded-full border text-[11px] font-medium tracking-wide uppercase shadow-sm transition-all duration-300 ${
+              isOnline ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span>{isOnline ? 'Live stream actif' : 'Mode synchrone historique'}</span>
+            </div>
+
+            {/* ⚡ BOUTON DÉCONNEXION WEB */}
+            <button 
+              onClick={handleAdminLogout} 
+              className="px-3 py-1.5 border border-slate-200 hover:border-slate-300 bg-white rounded-full text-[11px] text-slate-600 hover:text-slate-900 font-medium transition shadow-sm"
+            >
+              Fermer la session 
+            </button>
           </div>
         </div>
 
@@ -239,7 +365,7 @@ export default function Home() {
                     <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
                       {pickupSuggestions.map((s, idx) => (
                         <li key={idx} onClick={() => {
-                          setIsPickupSelected(true); // ⚡ On lève le drapeau
+                          setIsPickupSelected(true);
                           setPickupInput(s.display_name);
                           setPickupCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
                           setPickupSuggestions([]);
@@ -257,7 +383,7 @@ export default function Home() {
                     <ul className="absolute z-50 left-0 right-0 bg-white border border-slate-200 rounded-xl mt-1 max-h-40 overflow-y-auto shadow-lg divide-y divide-slate-100">
                       {deliverySuggestions.map((s, idx) => (
                         <li key={idx} onClick={() => {
-                          setIsDeliverySelected(true); // ⚡ On lève le drapeau
+                          setIsDeliverySelected(true);
                           setDeliveryInput(s.display_name);
                           setDeliveryCoords({ lat: parseFloat(s.lat), lng: parseFloat(s.lon) });
                           setDeliverySuggestions([]);

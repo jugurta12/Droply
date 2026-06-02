@@ -31,8 +31,7 @@ export class AppController {
     return lastLocation;
   }
 
-  // 1. Créer et assigner une mission à un livreur
-// 1. Créer et assigner une mission à un livreur avec génération du code secret
+  // 1. Créer et assigner une mission à un livreur avec génération du code secret
   @Post('missions')
   async createMission(@Body() body: {
     title: string;
@@ -50,7 +49,7 @@ export class AppController {
     const mission = this.missionRepository.create({
       ...body,
       status: MissionStatus.PENDING,
-      validationCode: randomCode, // ◄── Ajouté proprement ici
+      validationCode: randomCode, 
     });
     
     const savedMission = await this.missionRepository.save(mission);
@@ -65,7 +64,7 @@ export class AppController {
   async updateMissionStatus(
     @Param('id') id: number,
     @Body('status') status: MissionStatus,
-    @Body('code') code?: string, // ◄── Reçoit le code envoyé par le mobile
+    @Body('code') code?: string, 
   ) {
     const mission = await this.missionRepository.findOne({ where: { id: Number(id) } });
     if (!mission) {
@@ -88,7 +87,7 @@ export class AppController {
     return updatedMission;
   }
 
-// 2. Récupérer TOUTES les missions d'un livreur (avec calcul de distance pour les PENDING)
+  // 2. Récupérer TOUTES les missions d'un livreur (avec calcul de distance pour les PENDING)
   @Get('missions/user/:userId')
   async getUserMissions(@Param('userId') userId: string) {
     // A. Trouver le dernier point GPS connu de ce livreur
@@ -97,7 +96,6 @@ export class AppController {
       order: { createdAt: 'DESC' },
     });
 
-    // 🚀 CORRECTIF : On récupère TOUTES les missions attribuées à cet ID (sans filtrer sur PENDING uniquement)
     const missions = await this.missionRepository.find({
       where: { userId },
       order: { createdAt: 'DESC' },
@@ -130,14 +128,12 @@ export class AppController {
       });
     }
 
-    // Si pas de point GPS, on renvoie tout sans distance
     return missions.map(m => ({ ...m, distanceToPickup: null }));
   }
 
   // 3. Mettre à jour le statut d'une mission (Accepter / Terminer)
   @Post('auth/register')
   async register(@Body() body: { firstName: string; email: string; password:  string; profileImage: string }) {
-    // Vérifier si l'email existe déjà
     const existingUser = await this.userRepository.findOne({ where: { email: body.email } });
     if (existingUser) {
       return { error: "Cet email est déjà utilisé." };
@@ -146,7 +142,17 @@ export class AppController {
     const user = this.userRepository.create(body);
     const savedUser = await this.userRepository.save(user);
     
-    return { success: true, user: { id: savedUser.id, firstName: savedUser.firstName, email: savedUser.email, profileImage: savedUser.profileImage } };
+    // ⚡ INJECTION DU RÔLE DANS LA RÉPONSE REGISTER
+    return { 
+      success: true, 
+      user: { 
+        id: savedUser.id, 
+        firstName: savedUser.firstName, 
+        email: savedUser.email, 
+        profileImage: savedUser.profileImage,
+        role: savedUser.role // ◄── Rôle transmis au client
+      } 
+    };
   }
 
   // 2. ROUTE CONNEXION
@@ -158,7 +164,17 @@ export class AppController {
       return { error: "Email ou mot de passe incorrect." };
     }
 
-    return { success: true, user: { id: user.id, firstName: user.firstName, email: user.email, profileImage: user.profileImage } };
+    // ⚡ INJECTION DU RÔLE DANS LA RÉPONSE LOGIN
+    return { 
+      success: true, 
+      user: { 
+        id: user.id, 
+        firstName: user.firstName, 
+        email: user.email, 
+        profileImage: user.profileImage,
+        role: user.role // ◄── Rôle transmis au client
+      } 
+    };
   }
 
   @Delete('missions/:id')
@@ -173,12 +189,9 @@ export class AppController {
       throw new BadRequestException("Impossible de supprimer une course déjà acceptée ou livrée !");
     }
 
-    // On stocke l'ID numérique pur avant de détruire la ligne
     const missionIdToSend = Number(mission.id);
-
     await this.missionRepository.remove(mission);
 
-    // ⚡ CORRECTIF : On envoie l'ID converti de force en Number()
     this.gpsGateway.server.emit('admin_mission_updated', { id: missionIdToSend, status: 'DELETED' }); 
 
     return { success: true, message: "Mission supprimée avec succès." };
@@ -195,7 +208,6 @@ export class AppController {
       throw new BadRequestException("Utilisateur introuvable");
     }
 
-    // Mise à jour des champs modifiés
     user.firstName = body.firstName;
     if (body.profileImage) {
       user.profileImage = body.profileImage;
@@ -203,17 +215,18 @@ export class AppController {
 
     const updatedUser = await this.userRepository.save(user);
 
+    // ⚡ INJECTION DU RÔLE DANS LA RÉPONSE UPDATE PROFILE (Pour la cohérence mémoire)
     return { 
       success: true, 
       user: { 
         id: updatedUser.id, 
         firstName: updatedUser.firstName, 
         email: updatedUser.email, 
-        profileImage: updatedUser.profileImage 
+        profileImage: updatedUser.profileImage,
+        role: updatedUser.role // ◄── Rôle transmis au client
       } 
     };
   }
-
 
   @Post('locations/background')
   async saveBackgroundLocation(@Body() body: { userId: string; latitude: number; longitude: number }) {
@@ -224,7 +237,6 @@ export class AppController {
     });
     await this.locationRepository.save(location);
 
-    // On prévient l'admin en temps réel via la Gateway
     this.gpsGateway.server.emit('admin_location_moved', {
       userId: body.userId,
       latitude: body.latitude,
