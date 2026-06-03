@@ -2,7 +2,7 @@
 
 L'écosystème interconnecte une application mobile pour les livreurs, une console d'administration web pour le dispatch des missions, et un backend centralisé gérant les flux de données et les communications géospatiales en temps réel.
 
-## 🏗️ Architecture Globale
+##  Architecture Globale
 
 L'écosystème est découpé en trois :
 
@@ -12,7 +12,7 @@ L'écosystème est découpé en trois :
 
 ---
 
-## ✨ Fonctionnalités Majeures
+##  Fonctionnalités Majeures
 
 * **Authentification et Cloisonnement des Rôles** : Gestion stricte des privilèges utilisateurs (`ADMIN`, `LIVREUR`, `CLIENT`) directement appliqués en base de données.
 * **Tracking Géospatial Temps Réel** : Suivi des positions des coursiers via WebSockets (`Socket.io`) avec mise à jour instantanée sur la carte de l'administrateur.
@@ -23,7 +23,7 @@ L'écosystème est découpé en trois :
 
 ---
 
-## 🛠️ Pile Technologique
+##  Pile Technologique
 
 * **Framework Back** : NestJS (TypeScript)
 * **Framework Front Web** : Next.js 14+ (Tailwind CSS)
@@ -35,7 +35,7 @@ L'écosystème est découpé en trois :
 
 ---
 
-## 🚀 Installation et Démarrage
+##  Installation et Démarrage
 
 ### 1. Base de données (Docker)
 Assurez-vous que Docker Desktop est démarré, puis lancez le conteneur PostgreSQL :
