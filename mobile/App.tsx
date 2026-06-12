@@ -185,7 +185,7 @@ export default function App() {
     newSocket.on('disconnect', () => setConnected(false));
 
     newSocket.on('new_mission_alert', (mission: any) => {
-      if (mission.status === 'PENDING') {
+      if (mission.status === 'PENDING' && mission.userId === userId) {
         let updatedMission = { ...mission };
         
         setLocation((currentLocation) => {
@@ -201,11 +201,11 @@ export default function App() {
         });
 
         setAvailableMissions(prev => {
-        if (prev.some(m => Number(m.id) === Number(updatedMission.id))) {
-        return prev;
-        }
-        return [updatedMission, ...prev];
-});
+          if (prev.some(m => Number(m.id) === Number(updatedMission.id))) {
+            return prev;
+          }
+          return [updatedMission, ...prev];
+        });
         setIncomingMission(updatedMission);
         setModalVisible(true);
       }

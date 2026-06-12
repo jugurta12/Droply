@@ -43,6 +43,14 @@ export class GpsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  emitMissionToUser(userId: string, mission: unknown) {
+    for (const [socketId, connectedUserId] of this.activeConnections.entries()) {
+      if (connectedUserId === userId) {
+        this.server.to(socketId).emit('new_mission_alert', mission);
+      }
+    }
+  }
+
   @SubscribeMessage('update_location')
   async handleLocationUpdate(client: Socket, payload: { userId: string; latitude: number; longitude: number }) {
     // Sauvegarder le lien entre le socket actuel et l'ID de l'intervenant

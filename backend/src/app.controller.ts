@@ -41,23 +41,38 @@ export class AppController {
     deliveryLatitude: number;
     deliveryLongitude: number;
     price: number;
-    userId: string;
+    userId?: string;
+    userIds?: string[];
   }) {
-    // On génère le code de sécurité à 3 chiffres sans toucher au reste de la logique
-    const randomCode = Math.floor(100 + Math.random() * 900).toString();
+    const targetUserIds = body.userIds?.length ? body.userIds : body.userId ? [body.userId] : [];
+    if (targetUserIds.length === 0) {
+      throw new BadRequestException("Sélectionne au moins un livreur pour cette mission.");
+    }
 
-    const mission = this.missionRepository.create({
-      ...body,
-      status: MissionStatus.PENDING,
-      validationCode: randomCode, 
+    const missions = targetUserIds.map((userId) => {
+      const validationCode = Math.floor(100 + Math.random() * 900).toString();
+
+      return this.missionRepository.create({
+        title: body.title,
+        description: body.description,
+        pickupLatitude: body.pickupLatitude,
+        pickupLongitude: body.pickupLongitude,
+        deliveryLatitude: body.deliveryLatitude,
+        deliveryLongitude: body.deliveryLongitude,
+        price: body.price,
+        userId,
+        status: MissionStatus.PENDING,
+        validationCode,
+      });
     });
-    
-    const savedMission = await this.missionRepository.save(mission);
 
-    // ⚡ TEMPS RÉEL : On envoie une notification WebSocket au mobile du livreur ciblé !
-    this.gpsGateway.server.emit('new_mission_alert', savedMission);
+    const savedMissions = await this.missionRepository.save(missions);
 
-    return savedMission;
+    savedMissions.forEach((mission) => {
+      this.gpsGateway.emitMissionToUser(mission.userId, mission);
+    });
+
+    return savedMissions.length === 1 ? savedMissions[0] : savedMissions;
   }
    
   @Put('missions/:id/status')

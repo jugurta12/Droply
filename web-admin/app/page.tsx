@@ -30,6 +30,7 @@ export default function Home() {
 
   // États du Dashboard
   const [activeUser, setActiveUser] = useState<string | null>(null);
+  const [selectedMissionRecipients, setSelectedMissionRecipients] = useState<string[]>([]);
   const [lastSeen, setLastSeen] = useState<string>("En attente d'un signal livreur...");
   const [isOnline, setIsOnline] = useState<boolean>(false);
   
@@ -160,9 +161,26 @@ export default function Home() {
   // ⚡ DISPATCHER DE SÉLECTION DANS LE MENU DÉROULANT DE L'ACCUEIL
   const handleSelectConnectedDriver = (socketId: string) => {
     setActiveUser(socketId);
+    setSelectedMissionRecipients(prev => prev.includes(socketId) ? prev : [...prev, socketId]);
     setIsOnline(true);
     setLastSeen("En ligne (Flux actif)");
     loadUserMissions(socketId);
+  };
+
+  const handleToggleMissionRecipient = (socketId: string) => {
+    setSelectedMissionRecipients(prev =>
+      prev.includes(socketId)
+        ? prev.filter(id => id !== socketId)
+        : [...prev, socketId]
+    );
+  };
+
+  const handleSelectAllMissionRecipients = () => {
+    setSelectedMissionRecipients(missionRecipientOptions.map(driver => driver.socketId));
+  };
+
+  const handleClearMissionRecipients = () => {
+    setSelectedMissionRecipients([]);
   };
 
   // ⚡ MANAGEMENT CRUD : UPDATE RÔLE DANS LE CENTRE DE CONTRÔLE
@@ -282,8 +300,8 @@ export default function Home() {
     if (!pickupCoords || !deliveryCoords) {
       return alert("Sélectionne obligatoirement une adresse dans la liste !");
     }
-    if (!activeUser) {
-      return alert("Aucun livreur connecté pour recevoir cette course !");
+    if (selectedMissionRecipients.length === 0) {
+      return alert("Sélectionne au moins un livreur connecté pour recevoir cette course !");
     }
 
     setLoadingGeocode(true);
@@ -299,7 +317,7 @@ export default function Home() {
         deliveryLatitude: deliveryCoords.lat,
         deliveryLongitude: deliveryCoords.lng,
         price: parseFloat(price),
-        userId: activeUser,
+        userIds: selectedMissionRecipients,
       }),
     });
 
@@ -311,7 +329,9 @@ export default function Home() {
       setDeliveryInput('');
       setPickupCoords(null);
       setDeliveryCoords(null);
-      loadUserMissions(activeUser);
+      if (activeUser) {
+        loadUserMissions(activeUser);
+      }
       setActiveTab('ACTIVE');
     }
   };
@@ -323,6 +343,17 @@ export default function Home() {
       loadUserMissions(activeUser);
     }
   };
+
+  const missionRecipientOptions = allDbUsers
+    .filter(user => (user.role || 'LIVREUR') === 'LIVREUR')
+    .map(user => {
+      const socketId = `intervenant_${String(user.firstName).toLowerCase()}_${user.id}`;
+      return {
+        socketId,
+        label: user.firstName || socketId,
+        isOnline: connectedDrivers.some(driver => driver.socketId === socketId),
+      };
+    });
 
   const activeMissions = missions.filter(m => m.status !== 'DELIVERED');
   const historyMissions = missions.filter(m => m.status === 'DELIVERED');
@@ -477,10 +508,10 @@ export default function Home() {
             {/* PANEL DE GAUCHE : OUTILS ET LISTES */}
             <div className="space-y-6 lg:col-span-1">
               
-              {/* ⚡ COMPOSANT INTERVENANT CIBLÉ CONVERTI EN MENU DÉROULANT CLIQUABLE */}
+              {/* ⚡ COMPOSANT INTERVENANTS EN LIGNE CONVERTI EN MENU DÉROULANT CLIQUABLE */}
               <div className="bg-white p-5 rounded-2xl border border-slate-200/70 shadow-sm relative overflow-hidden group">
                 <div className="absolute top-0 left-0 w-1 h-full bg-slate-950" />
-                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Opérateur ciblé</h3>
+                <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Opérateurs en ligne</h3>
                 
                 <div className="mt-2 relative">
                   {connectedDrivers.length === 0 ? (
@@ -514,12 +545,53 @@ export default function Home() {
                 </div>
                 <form onSubmit={handleSubmitMission} className="space-y-4 text-xs">
                   
-                  <div>
-                    <label className="block text-slate-500 font-medium mb-1.5">Intitulé de la course</label>
-                    <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Hub expédition colis #902" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 font-medium focus:outline-none focus:border-slate-400 transition" />
-                  </div>
-                  
-                  {/* Départ */}
+	                  <div>
+	                    <label className="block text-slate-500 font-medium mb-1.5">Intitulé de la course</label>
+	                    <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Hub expédition colis #902" className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-800 font-medium focus:outline-none focus:border-slate-400 transition" />
+	                  </div>
+
+	                  <div className="border border-slate-200 rounded-xl p-3 bg-slate-50/60">
+	                    <div className="flex items-center justify-between gap-2 mb-2">
+	                      <label className="block text-slate-500 font-medium">Destinataires</label>
+	                      <div className="flex items-center gap-2">
+	                        <button type="button" onClick={handleSelectAllMissionRecipients} className="text-[10px] font-bold text-slate-500 hover:text-slate-950 uppercase tracking-wider">
+	                          Tous
+	                        </button>
+	                        <button type="button" onClick={handleClearMissionRecipients} className="text-[10px] font-bold text-slate-400 hover:text-rose-600 uppercase tracking-wider">
+	                          Aucun
+	                        </button>
+	                      </div>
+	                    </div>
+
+                    {missionRecipientOptions.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 font-medium">Aucun compte livreur trouvé.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
+                        {missionRecipientOptions.map((driver) => (
+                          <label key={driver.socketId} className="flex items-center justify-between gap-3 bg-white border border-slate-100 rounded-lg px-3 py-2 cursor-pointer hover:border-slate-300 transition">
+                            <span className="min-w-0">
+                              <span className="block text-[11px] font-semibold text-slate-700 truncate">@{driver.label}</span>
+                              <span className={`block text-[9px] font-bold uppercase tracking-wider ${driver.isOnline ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                {driver.isOnline ? 'En ligne' : 'Hors ligne'}
+                              </span>
+                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selectedMissionRecipients.includes(driver.socketId)}
+                              onChange={() => handleToggleMissionRecipient(driver.socketId)}
+                              className="h-4 w-4 accent-slate-950 shrink-0"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    )}
+
+	                    <p className="mt-2 text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
+	                      {selectedMissionRecipients.length} livreur(s) sélectionné(s)
+	                    </p>
+	                  </div>
+	                  
+	                  {/* Départ */}
                   <div className="relative">
                     <label className="block text-slate-500 font-medium mb-1.5">Adresse de chargement</label>
                     <input type="text" value={pickupInput} onChange={(e) => { setPickupCoords(null); setPickupInput(e.target.value); }} placeholder="Rechercher le départ..." className={`w-full px-3 py-2 border rounded-xl text-slate-800 font-medium focus:outline-none transition ${pickupCoords ? 'border-emerald-500 bg-emerald-50/20' : 'border-slate-200 focus:border-slate-400'}`} />
@@ -560,9 +632,9 @@ export default function Home() {
                     <input type="text" value={price} onChange={(e) => setPrice(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-slate-900 font-mono font-bold focus:outline-none" />
                   </div>
 
-                  <button type="submit" disabled={loadingGeocode || !pickupCoords || !deliveryCoords || !activeUser} className="w-full bg-slate-950 text-white font-medium py-2.5 rounded-xl hover:bg-slate-800 transition shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 border border-transparent tracking-wide mt-2">
-                    {activeUser ? 'Émettre la mission' : 'En attente de flotte'}
-                  </button>
+	                  <button type="submit" disabled={loadingGeocode || !pickupCoords || !deliveryCoords || selectedMissionRecipients.length === 0} className="w-full bg-slate-950 text-white font-medium py-2.5 rounded-xl hover:bg-slate-800 transition shadow-sm disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 border border-transparent tracking-wide mt-2">
+	                    {selectedMissionRecipients.length > 0 ? `Émettre vers ${selectedMissionRecipients.length} livreur(s)` : 'Choisir les destinataires'}
+	                  </button>
                 </form>
               </div>
 
