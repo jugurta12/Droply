@@ -200,7 +200,12 @@ export default function App() {
           return currentLocation;
         });
 
-        setAvailableMissions(prev => [updatedMission, ...prev]);
+        setAvailableMissions(prev => {
+        if (prev.some(m => Number(m.id) === Number(updatedMission.id))) {
+        return prev;
+        }
+        return [updatedMission, ...prev];
+});
         setIncomingMission(updatedMission);
         setModalVisible(true);
       }
