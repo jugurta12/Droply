@@ -33,7 +33,7 @@ export default function App() {
   const [incomingMission, setIncomingMission] = useState<any | null>(null);
   const [completedCount, setCompletedCount] = useState<number>(0);
 
-  // ⚡ ÉTAT SAISIE DU CODE CLIENT
+  //  ÉTAT SAISIE DU CODE CLIENT
   const [inputCode, setInputCode] = useState('');
 
   // Paramètres : champs modifiables
@@ -48,14 +48,14 @@ export default function App() {
         if (savedUserJson !== null) {
           const user = JSON.parse(savedUserJson);
           
-          // 🛡️ Sécurité : Si la session enregistrée est un ADMIN, on le déconnecte du mobile
+          //  Sécurité : Si la session enregistrée est un ADMIN, on le déconnecte du mobile
           if (user.role === 'ADMIN') {
             await AsyncStorage.removeItem('@droply_user_session');
             setAppLoading(false);
             return;
           }
 
-          console.log("🔒 Session trouvée en mémoire pour :", user.firstName);
+          console.log("Session trouvée en mémoire pour :", user.firstName);
           startLivreurSession(user);
         } else {
           setAppLoading(false);
@@ -104,7 +104,7 @@ export default function App() {
     };
     setCurrentUser(updatedUser);
     await AsyncStorage.setItem('@droply_user_session', JSON.stringify(updatedUser));
-    alert("Profil mis à jour ✅");
+    alert("Profil mis à jour");
   };
 
   // ⚡ LOGIQUE DE DÉCONNEXION (Vide la mémoire et revient au Login)
@@ -397,14 +397,14 @@ export default function App() {
   if (screen === 'REGISTER') {
     return (
       <ScrollView contentContainerStyle={[styles.authContainer, { paddingVertical: 60 }]}>
-        <Text style={styles.authTitle}>🚀 Créer un Compte</Text>
+        <Text style={styles.authTitle}> Créer un Compte</Text>
         
         <TouchableOpacity style={styles.avatarPicker} onPress={pickImage}>
           {profileImage ? (
             <Image source={{ uri: profileImage }} style={styles.avatarImage} />
           ) : (
             <View style={styles.avatarPlaceholder}>
-              <Text style={styles.avatarPlaceholderText}>📸 Photo de profil</Text>
+              <Text style={styles.avatarPlaceholderText}>Photo de profil</Text>
             </View>
           )}
         </TouchableOpacity>
@@ -510,7 +510,7 @@ export default function App() {
 
             {/* ⚡ BOUTON DE DÉCONNEXION LIÉ À LOGOUT LOGIC */}
             <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-              <Text style={styles.buttonText}>🔒 Déconnexion sécurisée</Text>
+              <Text style={styles.buttonText}>Déconnexion </Text>
             </TouchableOpacity>
           </ScrollView>
 
@@ -554,7 +554,7 @@ export default function App() {
 
             ) : activeMission && activeMission.status === 'DELIVERED' ? (
               <View style={styles.successCard}>
-                <Text style={styles.successTitle}>🎉 Bravo {currentUser?.firstName} !</Text>
+                <Text style={styles.successTitle}>Bravo {currentUser?.firstName} !</Text>
                 <Text style={styles.successText}>Course validée avec succès. Commission de {activeMission.price} € ajoutée à ton compte.</Text>
                 <TouchableOpacity style={styles.clearButton} onPress={() => setActiveMission(null)}>
                   <Text style={styles.clearButtonText}>Retourner au marché</Text>
@@ -563,11 +563,11 @@ export default function App() {
 
             ) : (
               <View style={{ flex: 1, width: '100%' }}>
-                <Text style={styles.marketTitle}>💼 Missions disponibles autour de toi :</Text>
+                <Text style={styles.marketTitle}>Missions disponibles autour de toi :</Text>
                 <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
                   {availableMissions.length === 0 ? (
                     <View style={styles.emptyMarket}>
-                      <Text style={styles.emptyMarketText}>⏳ Aucune offre pour le moment...</Text>
+                      <Text style={styles.emptyMarketText}>Aucune offre pour le moment...</Text>
                     </View>
                   ) : (
                     availableMissions.map((m) => (
